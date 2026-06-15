@@ -20,7 +20,7 @@ Opus 4.8 · myproject ████░░░░░░ 39% · 78400t · Δ840 tok 
 
 - context-window bar, live tokens, per-turn token/cost deltas, session cost, elapsed
 - **5h / 7d rate-limit bars with reset countdowns** — the same data `/usage` shows
-- optional [rtk](https://github.com) savings (shown only if `rtk` is installed)
+- optional `rtk` token-proxy savings (shown only if an `rtk` CLI is on your `PATH`)
 
 **2. Dashboard** (`tokenscope.py`) — a refreshing full-screen view for a second pane:
 
