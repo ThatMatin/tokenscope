@@ -1,0 +1,15 @@
+# Runtime artifacts (generated locally, never commit — may contain usage data)
+usage-snapshot.json
+turn-log.jsonl
+rtk-cache.txt
+*.tokdelta
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
