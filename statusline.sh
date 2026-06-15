@@ -32,6 +32,10 @@ DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 DIR=$(echo "$input"       | jq -r '.workspace.current_dir // ""' | xargs basename 2>/dev/null)
 SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
 CURRENT_DIR=$(echo "$input" | jq -r '.workspace.current_dir // ""')
+# Use the transcript path the harness provides directly. Reconstructing it from
+# current_dir breaks when the cwd differs from the session's launch dir (e.g.
+# after a cd), which silently zeroes out the per-turn deltas.
+TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // ""')
 # /usage rate limits — present only after the first API turn, subscription plans.
 FIVE_PCT=$(echo "$input"  | jq -r '.rate_limits.five_hour.used_percentage // empty')
 FIVE_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
@@ -88,10 +92,8 @@ fi
 # --- per-turn deltas + enriched turn log ---
 # Snapshot cumulative totals when a new user prompt appears; delta = current - baseline.
 DELTA_STR=""
-if [ -n "$SESSION_ID" ] && [ -n "$CURRENT_DIR" ]; then
-  PROJECT_KEY=$(echo "$CURRENT_DIR" | sed 's|[/._]|-|g')   # CC flattens /._ to -
-  TRANSCRIPT="$HOME/.claude/projects/${PROJECT_KEY}/${SESSION_ID}.jsonl"
-  DELTA_STATE="$HOME/.claude/projects/${PROJECT_KEY}/${SESSION_ID}.tokdelta"
+if [ -n "$TRANSCRIPT" ] && [ -n "$SESSION_ID" ]; then
+  DELTA_STATE="${TRANSCRIPT%.jsonl}.tokdelta"
   if [ -f "$TRANSCRIPT" ]; then
     # tool_result rows are also type:user — exclude so the baseline resets only on real prompts.
     USER_COUNT=$(grep '"type":"user"' "$TRANSCRIPT" 2>/dev/null | grep -vc 'tool_result')
