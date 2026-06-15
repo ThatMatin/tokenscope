@@ -7,6 +7,8 @@ emits. No API keys, no telemetry backend, no network calls.
 
 > Status: works, but pre-1.0 — paths and the turn-log schema may still change.
 
+![tokenscope dashboard and status line](assets/tokenscope.png)
+
 ## What you get
 
 **1. Status line** (`statusline.sh`) — two compact lines under your prompt:
