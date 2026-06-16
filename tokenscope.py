@@ -36,8 +36,9 @@ def build_parser():
 
     p_grid = sub.add_parser("grid", help="live view of all open sessions")
     p_grid.add_argument("-i", "--interval", type=float, default=3, help="refresh seconds")
-    p_grid.add_argument("-w", "--window", type=int, default=900,
-                        help="treat a session as open if active within N seconds (default 900)")
+    p_grid.add_argument("-w", "--window", type=int, default=0,
+                        help="only show sessions updated within N seconds "
+                             "(default 0 = all sessions with a live process)")
 
     p_rep = sub.add_parser("report", help="historical turn-log analysis")
     p_rep.add_argument("--days", type=int, help="only the last N days")

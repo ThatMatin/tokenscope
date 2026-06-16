@@ -27,8 +27,8 @@ def session_row(s, namew):
     name = (s.get("session_name") or s.get("session_id", "")[:8] or "?")[:namew]
     proj = os.path.basename((s.get("workspace") or {}).get("current_dir", "") or "")[:18]
     age = fmt_age(s.get("_age", 0))
-    # ● active (running a turn) · ◍ recently active · ○ idle.
-    if s.get("_status") == "active":
+    # ● busy (running a turn) · ◍ recently active · ○ idle.
+    if s.get("_status") == "busy":
         live = f"{C['g']}●{C['x']}"
     elif s.get("_age", 1e9) < 120:
         live = f"{C['y']}◍{C['x']}"
@@ -82,9 +82,8 @@ def render(sessions, now, refresh, max_age):
         out.append("")
 
     if not sessions:
-        out.append(f"  {C['dim']}No sessions active in the last {max_age//60}m.{C['x']}")
-        out.append(f"  {C['dim']}Run a Claude Code turn so the statusline writes "
-                   f"~/.claude/sessions/.{C['x']}")
+        scope = f"updated in the last {max_age//60}m" if max_age else "with a live process"
+        out.append(f"  {C['dim']}No Claude Code sessions {scope}.{C['x']}")
     else:
         namew = min(28, max(10, max(len(s.get("session_name") or "") for s in sessions)))
         out.append(f"  {C['dim']}  {'session':<{namew}}  {'project':<18} {'model':<10}  "
@@ -96,9 +95,10 @@ def render(sessions, now, refresh, max_age):
         out.append(f"  {C['dim']}total across open sessions: {C['x']}{C['g']}{money(tot)}{C['x']}")
 
     out.append("")
+    scope = f"updated <{max_age//60}m" if max_age else "all live processes"
     out.append(f"{C['dim']}  Ctrl-C to quit · refresh {refresh}s · "
-               f"{C['g']}●{C['dim']} active · {C['y']}◍{C['dim']} recent · ○ idle · "
-               f"live PIDs, updated <{max_age//60}m{C['x']}")
+               f"{C['g']}●{C['dim']} busy · {C['y']}◍{C['dim']} recent · ○ idle · "
+               f"{scope}{C['x']}")
     return "\n".join(out)
 
 
