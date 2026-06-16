@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""dashboard — self-contained interactive HTML from turn-log.jsonl (was tokstats_dashboard).
+
+Embeds the turn history + Chart.js (CDN) into one HTML file; project/date filters
+re-render client-side, no server. Also embeds a snapshot of the sessions open at
+generation time (an "Active sessions" panel) — for a continuously-live multi-
+session view use `tokenscope grid` in a terminal.
+"""
+import json
+import os
+import sys
+import webbrowser
+from datetime import datetime, timezone
+
+from tokcore import TURN_LOG, discover_sessions
+
+OUT = os.path.expanduser("~/.claude/tokstats-dashboard.html")
+
+
+def load(path):
+    rows = []
+    if not os.path.exists(path):
+        return rows
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "ts" not in r:
+                continue
+            try:
+                dt = datetime.fromisoformat(r["ts"].replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            r["epoch"] = int(dt.timestamp() * 1000)
+            rows.append(r)
+    rows.sort(key=lambda r: r["epoch"])
+    return rows
+
+
+def session_cards():
+    """Flatten open-session snapshots into compact dicts for the HTML panel."""
+    out = []
+    for s in discover_sessions(max_age=900):
+        cw = s.get("context_window") or {}
+        out.append({
+            "name": s.get("session_name") or (s.get("session_id", "")[:8]),
+            "project": os.path.basename((s.get("workspace") or {}).get("current_dir", "") or ""),
+            "model": (s.get("model") or {}).get("display_name", "?"),
+            "ctx": cw.get("used_percentage") or 0,
+            "cost": (s.get("cost") or {}).get("total_cost_usd", 0) or 0,
+            "age": int(s.get("_age", 0)),
+        })
+    return out
+
+
+HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tokenscope — Claude Code spend</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1117; --card:#161b22; --line:#222b36; --txt:#e6edf3; --dim:#9aa0a6;
+    --exact:#2eb67d; --border:#36c5f0; --partial:#ecb22e; --red:#e01e5a; --gray:#6b7280;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:20px 28px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0;font-weight:700}
+  h1 .z{color:var(--exact)}
+  .controls{display:flex;gap:12px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  select,input{background:var(--card);color:var(--txt);border:1px solid var(--line);
+    border-radius:7px;padding:6px 9px;font-size:13px}
+  label{color:var(--dim);font-size:12px;margin-right:4px}
+  .wrap{padding:22px 28px;max-width:1280px;margin:0 auto}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .kpi .v{font-size:26px;font-weight:700;letter-spacing:-.5px}
+  .kpi .l{color:var(--dim);font-size:12px;margin-top:3px}
+  .kpi.exact .v{color:var(--exact)} .kpi.partial .v{color:var(--partial)}
+  .kpi.border .v{color:var(--border)} .kpi.red .v{color:var(--red)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:600;
+    text-transform:uppercase;letter-spacing:.5px}
+  .card.full{grid-column:1/-1}
+  canvas{max-height:300px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:600}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .ctxbar{display:inline-block;height:8px;border-radius:4px;background:var(--exact);vertical-align:middle}
+  .ctxtrack{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);vertical-align:middle;overflow:hidden}
+  .pill{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--exact);margin-right:6px;vertical-align:middle}
+  .pill.idle{background:var(--gray)}
+  .sess-note{color:var(--gray);font-size:11px;margin-top:8px}
+  .legend{font-size:11px;color:var(--gray);margin-top:14px;line-height:1.7}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="z">token</span>scope · Claude Code spend</h1>
+  <div class="controls">
+    <span><label>Project</label><select id="fProj"></select></span>
+    <span><label>From</label><input type="date" id="fFrom"></span>
+    <span><label>To</label><input type="date" id="fTo"></span>
+  </div>
+</header>
+<div class="wrap">
+  <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
+    <h2>Active sessions <span style="text-transform:none;font-weight:400">(snapshot at generation)</span></h2>
+    <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
+    <div class="sess-note">Static snapshot — for a continuously-live view run <code>tokenscope grid</code> in a terminal.</div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid">
+    <div class="card full"><h2>Spend per day</h2><canvas id="cDay"></canvas></div>
+    <div class="card"><h2>Cumulative spend</h2><canvas id="cCum"></canvas></div>
+    <div class="card"><h2>Spend by project</h2><canvas id="cProj"></canvas></div>
+    <div class="card full"><h2>5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
+    <div class="card"><h2>Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
+    <div class="card"><h2>Top 12 turns by cost</h2>
+      <table id="tTop"><thead><tr><th>When</th><th>Project</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+  <div class="legend">
+    <span class="dot" style="background:var(--exact)"></span><b>Cost</b> — exact, includes subagent spend &nbsp;&nbsp;
+    <span class="dot" style="background:var(--partial)"></span><b>Tokens</b> — main-loop only, excludes subagents (can go negative on compaction) &nbsp;&nbsp;
+    <span class="dot" style="background:var(--border)"></span><b>5h window</b> — exact values, heuristic turn-slicing
+    <br>Generated __GEN__ · __N__ turns · data: ~/.claude/turn-log.jsonl
+  </div>
+</div>
+<script>
+const DATA = __DATA__;
+const SESSIONS = __SESSIONS__;
+const $ = s => document.querySelector(s);
+const money = x => "$" + x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const toks = x => { const a=Math.abs(x), s=x<0?"-":"";
+  return a>=1e6 ? s+(a/1e6).toFixed(2)+"M" : a>=1e3 ? s+(a/1e3).toFixed(1)+"K" : s+a; };
+const COL = {exact:"#2eb67d", partial:"#ecb22e", border:"#36c5f0", red:"#e01e5a"};
+Chart.defaults.color = "#9aa0a6";
+Chart.defaults.borderColor = "#222b36";
+Chart.defaults.font.family = "-apple-system,Segoe UI,Roboto,sans-serif";
+
+const fmtDay = e => { const d=new Date(e); return d.getFullYear()+"-"+
+  String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const fmtAge = s => s<90 ? s+"s" : s<5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h";
+
+// Active sessions panel (snapshot at generation)
+if (SESSIONS.length){
+  $("#sessCard").style.display = "";
+  $("#tSess tbody").innerHTML = SESSIONS.map(s=>{
+    const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
+    return `<tr><td><span class="pill ${s.age<90?'':'idle'}"></span></td>`+
+      `<td>${s.name}</td><td>${s.project}</td><td>${s.model}</td>`+
+      `<td class="n"><span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%</td>`+
+      `<td class="n">${money(s.cost)}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
+  }).join("");
+}
+
+const projects = [...new Set(DATA.map(r=>r.project))].sort();
+const selP = $("#fProj");
+selP.innerHTML = '<option value="">All projects</option>' +
+  projects.map(p=>`<option>${p}</option>`).join("");
+if (DATA.length){
+  $("#fFrom").value = fmtDay(DATA[0].epoch);
+  $("#fTo").value   = fmtDay(DATA[DATA.length-1].epoch);
+}
+
+let charts = {};
+function destroy(){ Object.values(charts).forEach(c=>c&&c.destroy()); charts={}; }
+
+function filtered(){
+  const p = selP.value;
+  const from = $("#fFrom").value ? new Date($("#fFrom").value+"T00:00").getTime() : -Infinity;
+  const to   = $("#fTo").value   ? new Date($("#fTo").value+"T23:59:59").getTime() : Infinity;
+  return DATA.filter(r => (!p||r.project===p) && r.epoch>=from && r.epoch<=to);
+}
+
+function peakWindow(rows, hours=5){
+  if(!rows.length) return {peak:0,end:null};
+  const span = hours*3600*1000; let lo=0, run=0, best=0, bestEnd=null;
+  for(let hi=0; hi<rows.length; hi++){
+    run += rows[hi].turn_cost||0;
+    while(rows[hi].epoch - rows[lo].epoch > span){ run -= rows[lo].turn_cost||0; lo++; }
+    if(run>best){ best=run; bestEnd=rows[hi].epoch; }
+  }
+  return {peak:best, end:bestEnd};
+}
+
+function render(){
+  const rows = filtered();
+  destroy();
+  const totCost = rows.reduce((a,r)=>a+(r.turn_cost||0),0);
+  const posTok  = rows.reduce((a,r)=>a+Math.max(0,r.turn_tokens||0),0);
+  const sessions = new Set(rows.map(r=>r.session)).size;
+  const days = new Set(rows.map(r=>fmtDay(r.epoch))).size || 1;
+  const costs = rows.map(r=>r.turn_cost||0);
+  const maxTurn = costs.length?Math.max(...costs):0;
+  const {peak} = peakWindow(rows);
+  const kpi = [
+    ["exact", money(totCost), "Total spend"],
+    ["exact", money(totCost/days), "Per day"],
+    ["partial", toks(posTok), "Tokens added"],
+    ["border", money(peak), "Peak 5h window"],
+    ["red", money(maxTurn), "Priciest turn"],
+    ["exact", rows.length+" / "+sessions, "Turns / sessions"],
+  ];
+  $("#kpis").innerHTML = kpi.map(([c,v,l])=>
+    `<div class="kpi ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+
+  const byDay = {};
+  rows.forEach(r=>{ const d=fmtDay(r.epoch); (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].c+=r.turn_cost||0; byDay[d].t+=Math.max(0,r.turn_tokens||0); });
+  const days_k = Object.keys(byDay).sort();
+  charts.day = new Chart($("#cDay"), {type:"bar",
+    data:{labels:days_k, datasets:[{label:"Spend",data:days_k.map(d=>byDay[d].c),
+      backgroundColor:COL.exact, borderRadius:5}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.y)+
+      "  ·  "+toks(byDay[c.label].t)+" tok"}}},
+      scales:{y:{ticks:{callback:v=>"$"+v}}}}});
+
+  let run=0; const cum = rows.map(r=>({x:r.epoch, y:(run+=r.turn_cost||0)}));
+  charts.cum = new Chart($("#cCum"), {type:"line",
+    data:{datasets:[{data:cum, borderColor:COL.exact, backgroundColor:"rgba(46,182,125,.12)",
+      fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
+    options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
+      title:i=>new Date(i[0].parsed.x).toLocaleString(), label:c=>money(c.parsed.y)}}},
+      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{ticks:{callback:v=>"$"+v}}}}});
+
+  const byP={}; rows.forEach(r=>byP[r.project]=(byP[r.project]||0)+(r.turn_cost||0));
+  const pe=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
+  const palette=["#2eb67d","#36c5f0","#ecb22e","#e01e5a","#9b87f5","#6b7280","#e8912d","#4cd4b0"];
+  charts.proj = new Chart($("#cProj"), {type:"doughnut",
+    data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
+      backgroundColor:palette, borderColor:"#161b22", borderWidth:2}]},
+    options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
+      tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
+
+  const span=5*3600*1000; let lo=0,r5=0; const roll=[];
+  for(let hi=0;hi<rows.length;hi++){ r5+=rows[hi].turn_cost||0;
+    while(rows[hi].epoch-rows[lo].epoch>span){ r5-=rows[lo].turn_cost||0; lo++; }
+    roll.push({x:rows[hi].epoch, y:r5}); }
+  charts.roll = new Chart($("#cRoll"), {type:"line",
+    data:{datasets:[{data:roll, borderColor:COL.border, backgroundColor:"rgba(54,197,240,.10)",
+      fill:true, tension:.2, pointRadius:0, borderWidth:2}]},
+    options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
+      title:i=>new Date(i[0].parsed.x).toLocaleString(),
+      label:c=>money(c.parsed.y)+" in trailing 5h"}}},
+      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{ticks:{callback:v=>"$"+v}}}}});
+
+  charts.scatter = new Chart($("#cScatter"), {type:"scatter",
+    data:{datasets:[{data:rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project})),
+      backgroundColor:"rgba(54,197,240,.55)", pointRadius:4}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{
+      label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
+      scales:{x:{title:{display:true,text:"main-loop tokens"},ticks:{callback:v=>toks(v)}},
+              y:{title:{display:true,text:"cost"},ticks:{callback:v=>"$"+v}}}}});
+
+  const top=[...rows].sort((a,b)=>(b.turn_cost||0)-(a.turn_cost||0)).slice(0,12);
+  $("#tTop tbody").innerHTML = top.map(r=>{
+    const d=new Date(r.epoch);
+    return `<tr><td>${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</td>`+
+      `<td>${(r.project||"").slice(0,16)}</td>`+
+      `<td class="n">${money(r.turn_cost||0)}</td>`+
+      `<td class="n">${toks(r.turn_tokens||0)}</td>`+
+      `<td class="n">${r.context_pct??""}%</td></tr>`;
+  }).join("");
+}
+
+[selP,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
+render();
+</script>
+</body>
+</html>
+"""
+
+
+def run(args):
+    rows = load(args.log)
+    if not rows:
+        sys.exit("No turns in the log yet.")
+    html = (HTML
+            .replace("__DATA__", json.dumps(rows, separators=(",", ":")))
+            .replace("__SESSIONS__", json.dumps(session_cards(), separators=(",", ":")))
+            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M"))
+            .replace("__N__", str(len(rows))))
+    with open(args.out, "w") as f:
+        f.write(html)
+    print(f"Wrote {args.out}  ({len(rows)} turns)")
+    if not args.no_open:
+        webbrowser.open("file://" + args.out)

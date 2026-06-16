@@ -2,7 +2,13 @@
 usage-snapshot.json
 turn-log.jsonl
 rtk-cache.txt
+tokenscope-daily.json
+tokstats-dashboard.html
+tokscope-sessions/
 *.tokdelta
+
+# Local index
+.memsearch/
 
 # Python
 __pycache__/

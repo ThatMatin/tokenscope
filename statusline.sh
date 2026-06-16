@@ -78,6 +78,13 @@ fmt_reset() {
 
 # Snapshot the full payload for the dashboard (which has no stdin of its own).
 printf '%s' "$input" > "$HOME/.claude/usage-snapshot.json" 2>/dev/null
+# Per-session snapshot (keyed by session id) so `tokenscope grid` can show
+# authoritative cost/context per open session, joined to Claude Code's own
+# session registry. Separate dir from ~/.claude/sessions (that's the harness's).
+if [ -n "$SESSION_ID" ]; then
+  mkdir -p "$HOME/.claude/tokscope-sessions" 2>/dev/null
+  printf '%s' "$input" > "$HOME/.claude/tokscope-sessions/${SESSION_ID}.json" 2>/dev/null
+fi
 
 # Optional rtk savings: never call rtk synchronously (too slow for a statusline).
 # Cache holds "EPOCH SAVED PCT"; refresh in the background when stale (>60s).
