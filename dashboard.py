@@ -100,68 +100,87 @@ HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tokenscope — Claude Code spend</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* "Quiet instrument panel" — muted neutrals, one accent, color reserved for signal.
+     Inter via CDN with a system fallback so the static file still works offline. */
   :root{
-    --bg:#0e1117; --card:#161b22; --line:#222b36; --txt:#e6edf3; --dim:#9aa0a6;
-    --exact:#2eb67d; --border:#36c5f0; --partial:#ecb22e; --red:#e01e5a; --gray:#6b7280;
+    --bg:#0B0E14; --bg-soft:#0d111a; --card:#13171F; --card-2:#171c26;
+    --line:#1F2530; --line-2:#2a313d;
+    --txt:#E6EDF3; --dim:#9BA3AE; --faint:#5B6470;
+    --accent:#3ECF8E;
+    /* muted, lower-chroma data palette */
+    --exact:#3ECF8E; --border:#5BB9D6; --partial:#D8A848; --red:#E0607E; --gray:#6b7280;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.18);
+    --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  header{padding:20px 28px;border-bottom:1px solid var(--line);
-    display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-  h1{font-size:18px;margin:0;font-weight:700}
-  h1 .z{color:var(--exact)}
+  body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 var(--font);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  header{padding:22px 30px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--bg-soft),var(--bg))}
+  h1{font-size:17px;margin:0;font-weight:600;letter-spacing:-.01em}
+  h1 .z{color:var(--accent)}
   .controls{display:flex;gap:12px;align-items:center;margin-left:auto;flex-wrap:wrap}
-  select,input{background:var(--card);color:var(--txt);border:1px solid var(--line);
-    border-radius:7px;padding:6px 9px;font-size:13px}
-  label{color:var(--dim);font-size:12px;margin-right:4px}
-  .wrap{padding:22px 28px;max-width:1280px;margin:0 auto}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
-  .kpi .v{font-size:26px;font-weight:700;letter-spacing:-.5px}
-  .kpi .l{color:var(--dim);font-size:12px;margin-top:3px}
+  select,input{background:var(--card-2);color:var(--txt);border:1px solid var(--line-2);
+    border-radius:8px;padding:7px 10px;font-size:13px;font-family:var(--font)}
+  select:focus,input:focus{outline:none;border-color:var(--accent)}
+  label{color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-right:5px}
+  .wrap{padding:26px 30px;max-width:1320px;margin:0 auto}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin-bottom:24px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+    box-shadow:var(--shadow)}
+  .kpi .v{font-size:28px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kpi .l{color:var(--faint);font-size:11px;margin-top:5px;text-transform:uppercase;letter-spacing:.05em}
   .kpi.exact .v{color:var(--exact)} .kpi.partial .v{color:var(--partial)}
   .kpi.border .v{color:var(--border)} .kpi.red .v{color:var(--red)}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
-  .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:600;
-    text-transform:uppercase;letter-spacing:.5px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+    box-shadow:var(--shadow)}
+  .card h2{font-size:12px;margin:0 0 14px;color:var(--dim);font-weight:500;
+    text-transform:uppercase;letter-spacing:.07em}
   /* Section description: hover the header only (not the data inside). */
-  h2[data-desc]{cursor:help;position:relative}
-  h2[data-desc]::after{content:"ⓘ";margin-left:5px;color:var(--gray);font-size:9px;
-    vertical-align:super;opacity:.55}
+  h2[data-desc]{cursor:help;position:relative;display:inline-block}
+  h2[data-desc]::after{content:"ⓘ";margin-left:6px;color:var(--faint);font-size:9px;
+    vertical-align:super;opacity:.6}
   h2[data-desc]:hover::before{
     content:attr(data-desc);
-    position:absolute;left:0;top:calc(100% + 5px);z-index:30;
-    width:320px;max-width:72vw;padding:9px 12px;
-    background:#0b0e14;border:1px solid var(--line);border-radius:8px;
-    box-shadow:0 8px 24px rgba(0,0,0,.45);color:var(--txt);
-    font:400 12px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    text-transform:none;letter-spacing:normal;white-space:normal}
+    position:absolute;left:0;top:calc(100% + 6px);z-index:30;
+    width:320px;max-width:72vw;padding:10px 13px;
+    background:var(--card-2);border:1px solid var(--line-2);border-radius:10px;
+    box-shadow:var(--shadow);color:var(--txt);
+    font:400 12px/1.55 var(--font);
+    text-transform:none;letter-spacing:normal;white-space:normal;
+    animation:fade .12s ease-out}
+  @keyframes fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
   .card.full{grid-column:1/-1}
   canvas{max-height:300px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
-  th{color:var(--dim);font-weight:600}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  th{color:var(--faint);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  tbody tr{transition:background .12s} tbody tr:hover{background:var(--card-2)}
   td.n{text-align:right;font-variant-numeric:tabular-nums}
-  .ctxbar{display:inline-block;height:8px;border-radius:4px;background:var(--exact);vertical-align:middle}
-  .ctxtrack{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);vertical-align:middle;overflow:hidden}
-  .pill{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--exact);margin-right:6px;vertical-align:middle}
-  .pill.idle{background:var(--gray)}
-  .muted{color:var(--gray)}
-  .livegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 24px}
-  .lv{display:flex;align-items:center;gap:8px;font-size:13px}
-  .lv .lvl{display:inline-block;width:42px;color:var(--dim)}
-  .lv b{font-variant-numeric:tabular-nums}
-  #liveBadge{display:none;align-items:center;gap:6px;font-size:12px;color:var(--exact);
-    border:1px solid var(--line);border-radius:20px;padding:3px 10px}
-  #liveBadge::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--exact);
-    animation:pulse 1.6s infinite}
-  #liveBadge.stale{color:var(--partial)} #liveBadge.stale::before{background:var(--partial);animation:none}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-  .sess-note{color:var(--gray);font-size:11px;margin-top:8px}
-  .legend{font-size:11px;color:var(--gray);margin-top:14px;line-height:1.7}
+  .ctxbar{display:inline-block;height:6px;border-radius:3px;background:var(--accent);vertical-align:middle}
+  .ctxtrack{display:inline-block;width:90px;height:6px;border-radius:3px;background:var(--line-2);vertical-align:middle;overflow:hidden}
+  .pill{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle;
+    box-shadow:0 0 6px color-mix(in srgb,var(--accent) 70%,transparent)}
+  .pill.idle{background:var(--faint);box-shadow:none}
+  .muted{color:var(--faint)}
+  .livegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 26px}
+  .lv{display:flex;align-items:center;gap:9px;font-size:13px}
+  .lv .lvl{display:inline-block;width:42px;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .lv b{font-weight:600;font-variant-numeric:tabular-nums}
+  #liveBadge{display:none;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--accent);
+    border:1px solid var(--line-2);border-radius:20px;padding:4px 11px}
+  #liveBadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 8px var(--accent);animation:pulse 1.8s infinite}
+  #liveBadge.stale{color:var(--partial)} #liveBadge.stale::before{background:var(--partial);box-shadow:none;animation:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .sess-note{color:var(--faint);font-size:11px;margin-top:10px}
+  .legend{font-size:11px;color:var(--faint);margin-top:16px;line-height:1.8}
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
   @media(max-width:820px){.grid{grid-template-columns:1fr}}
 </style>
@@ -217,14 +236,43 @@ const $ = s => document.querySelector(s);
 const money = x => "$" + x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const toks = x => { const a=Math.abs(x), s=x<0?"-":"";
   return a>=1e6 ? s+(a/1e6).toFixed(2)+"M" : a>=1e3 ? s+(a/1e3).toFixed(1)+"K" : s+a; };
-const COL = {exact:"#2eb67d", partial:"#ecb22e", border:"#36c5f0", red:"#e01e5a"};
-const PALETTE = ["#2eb67d","#36c5f0","#ecb22e","#e01e5a","#9b87f5","#6b7280","#e8912d","#4cd4b0"];
+const COL = {exact:"#3ECF8E", partial:"#D8A848", border:"#5BB9D6", red:"#E0607E"};
+// muted, lower-chroma data palette — color stays calm so signal stands out
+const PALETTE = ["#3ECF8E","#6E8BFF","#5BB9D6","#D8A848","#E0607E","#9b87f5","#7C8694","#4cd4b0"];
 // claude-opus-4-8 -> Opus 4-8 ; claude-3-5-haiku-20241022 -> 3-5-haiku ...
 const modelShort = m => !m ? "?" : m.replace(/^claude-/,"").replace(/-\d{8}$/,"")
   .replace(/^(opus|sonnet|haiku)/i, s=>s[0].toUpperCase()+s.slice(1));
-Chart.defaults.color = "#9aa0a6";
-Chart.defaults.borderColor = "#222b36";
-Chart.defaults.font.family = "-apple-system,Segoe UI,Roboto,sans-serif";
+Chart.defaults.color = "#5B6470";
+Chart.defaults.borderColor = "#1F2530";
+Chart.defaults.font.family = '"Inter",-apple-system,"Segoe UI",Roboto,sans-serif';
+Chart.defaults.font.size = 11;
+Chart.defaults.elements.line.borderWidth = 1.5;
+Chart.defaults.elements.line.tension = 0.32;
+Chart.defaults.elements.point.radius = 0;
+Chart.defaults.elements.point.hoverRadius = 4;
+Chart.defaults.elements.bar.borderRadius = 4;
+Chart.defaults.plugins.tooltip.backgroundColor = "#171c26";
+Chart.defaults.plugins.tooltip.borderColor = "#2a313d";
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.titleColor = "#E6EDF3";
+Chart.defaults.plugins.tooltip.bodyColor = "#9BA3AE";
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 8;
+Chart.defaults.plugins.tooltip.displayColors = false;
+
+// Soft vertical gradient fill: opaque-ish at the line, fading to transparent.
+function grad(hex){
+  return (ctx)=>{
+    const {chart}=ctx, area=chart.chartArea;
+    if(!area) return hex+"22";
+    const g=chart.ctx.createLinearGradient(0,area.top,0,area.bottom);
+    g.addColorStop(0,hex+"3A"); g.addColorStop(1,hex+"00");
+    return g;
+  };
+}
+// y-axis only, faint dashed gridlines; no x gridlines (less chart junk)
+const GRID = {x:{grid:{display:false},border:{display:false}},
+              y:{grid:{color:"#1A1F29",drawTicks:false},border:{display:false}}};
 
 const fmtDay = e => { const d=new Date(e); return d.getFullYear()+"-"+
   String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
@@ -377,23 +425,22 @@ function render(){
       backgroundColor:COL.exact, borderRadius:5}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.y)+
       "  ·  "+toks(byDay[c.label].t)+" tok"}}},
-      scales:{y:{ticks:{callback:v=>"$"+v}}}}});
+      scales:{x:GRID.x, y:{...GRID.y,ticks:{callback:v=>"$"+v}}}}});
 
   let run=0; const cum = rows.map(r=>({x:r.epoch, y:(run+=r.turn_cost||0)}));
   draw("cum", "#cCum", {type:"line",
-    data:{datasets:[{data:cum, borderColor:COL.exact, backgroundColor:"rgba(46,182,125,.12)",
-      fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
+    data:{datasets:[{data:cum, borderColor:COL.exact, backgroundColor:grad(COL.exact), fill:true}]},
     options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
       title:i=>new Date(i[0].parsed.x).toLocaleString(), label:c=>money(c.parsed.y)}}},
-      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
-              y:{ticks:{callback:v=>"$"+v}}}}});
+      scales:{x:{type:"linear",...GRID.x,ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{...GRID.y,ticks:{callback:v=>"$"+v}}}}});
 
   const byP={}; rows.forEach(r=>byP[r.project]=(byP[r.project]||0)+(r.turn_cost||0));
   const pe=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
   draw("proj", "#cProj", {type:"doughnut",
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
-      backgroundColor:PALETTE, borderColor:"#161b22", borderWidth:2}]},
-    options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
+      backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
+    options:{cutout:"62%", plugins:{legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // by model (only rows that recorded a model — older rows predate that field)
@@ -401,8 +448,8 @@ function render(){
   const me=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
   draw("model", "#cModel", {type:"doughnut",
     data:{labels:me.map(e=>modelShort(e[0])), datasets:[{data:me.map(e=>e[1]),
-      backgroundColor:PALETTE, borderColor:"#161b22", borderWidth:2}]},
-    options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
+      backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
+    options:{cutout:"62%", plugins:{legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // cache tokens per day — read vs write, stacked (the bulk of traffic)
@@ -414,46 +461,43 @@ function render(){
     data:{labels:ck, datasets:[
       {label:"cache read", data:ck.map(d=>byDayC[d].rd), backgroundColor:COL.border, stack:"c", borderRadius:4},
       {label:"cache write", data:ck.map(d=>byDayC[d].wr), backgroundColor:COL.partial, stack:"c", borderRadius:4}]},
-    options:{plugins:{legend:{position:"top",labels:{boxWidth:11,font:{size:11}}},
+    options:{plugins:{legend:{position:"top",labels:{boxWidth:10,boxHeight:10,font:{size:11}}},
       tooltip:{callbacks:{label:c=>c.dataset.label+": "+toks(c.parsed.y)}}},
-      scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>toks(v)}}}}});
+      scales:{x:{stacked:true,...GRID.x},y:{stacked:true,...GRID.y,ticks:{callback:v=>toks(v)}}}}});
 
   const span=5*3600*1000; let lo=0,r5=0; const roll=[];
   for(let hi=0;hi<rows.length;hi++){ r5+=rows[hi].turn_cost||0;
     while(rows[hi].epoch-rows[lo].epoch>span){ r5-=rows[lo].turn_cost||0; lo++; }
     roll.push({x:rows[hi].epoch, y:r5}); }
   draw("roll", "#cRoll", {type:"line",
-    data:{datasets:[{data:roll, borderColor:COL.border, backgroundColor:"rgba(54,197,240,.10)",
-      fill:true, tension:.2, pointRadius:0, borderWidth:2}]},
+    data:{datasets:[{data:roll, borderColor:COL.border, backgroundColor:grad(COL.border), fill:true}]},
     options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
       title:i=>new Date(i[0].parsed.x).toLocaleString(),
       label:c=>money(c.parsed.y)+" in trailing 5h"}}},
-      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
-              y:{ticks:{callback:v=>"$"+v}}}}});
+      scales:{x:{type:"linear",...GRID.x,ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{...GRID.y,ticks:{callback:v=>"$"+v}}}}});
 
   // rate-limit burn over time — 5h / 7d %, only rows that carry the fields
   const rl = rows.filter(r=>r.five_h_pct!=null || r.seven_d_pct!=null);
   draw("limits", "#cLimits", {type:"line",
     data:{datasets:[
       {label:"5h %", data:rl.map(r=>({x:r.epoch,y:r.five_h_pct??null})),
-        borderColor:COL.partial, backgroundColor:"rgba(236,178,46,.10)", fill:false,
-        tension:.2, pointRadius:0, borderWidth:2, spanGaps:true},
+        borderColor:COL.partial, fill:false, spanGaps:true},
       {label:"7d %", data:rl.map(r=>({x:r.epoch,y:r.seven_d_pct??null})),
-        borderColor:COL.red, backgroundColor:"rgba(224,30,90,.10)", fill:false,
-        tension:.2, pointRadius:0, borderWidth:2, spanGaps:true}]},
-    options:{parsing:false, plugins:{legend:{position:"top",labels:{boxWidth:11,font:{size:11}}},
+        borderColor:COL.red, fill:false, spanGaps:true}]},
+    options:{parsing:false, plugins:{legend:{position:"top",labels:{boxWidth:10,boxHeight:10,font:{size:11}}},
       tooltip:{callbacks:{title:i=>new Date(i[0].parsed.x).toLocaleString(),
         label:c=>c.dataset.label+" "+c.parsed.y+"%"}}},
-      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
-              y:{min:0,max:100,ticks:{callback:v=>v+"%"}}}}});
+      scales:{x:{type:"linear",...GRID.x,ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{min:0,max:100,...GRID.y,ticks:{callback:v=>v+"%"}}}}});
 
   draw("scatter", "#cScatter", {type:"scatter",
     data:{datasets:[{data:rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project})),
-      backgroundColor:"rgba(54,197,240,.55)", pointRadius:4}]},
+      backgroundColor:"rgba(110,139,255,.5)", pointRadius:3, pointHoverRadius:5}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
-      scales:{x:{title:{display:true,text:"main-loop tokens"},ticks:{callback:v=>toks(v)}},
-              y:{title:{display:true,text:"cost"},ticks:{callback:v=>"$"+v}}}}});
+      scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
+              y:{...GRID.y,title:{display:true,text:"cost",color:"#5B6470"},ticks:{callback:v=>"$"+v}}}}});
 
   const top=[...rows].sort((a,b)=>(b.turn_cost||0)-(a.turn_cost||0)).slice(0,12);
   $("#tTop tbody").innerHTML = top.map(r=>{
