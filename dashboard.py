@@ -232,7 +232,8 @@ HTML = r"""<!doctype html>
   <div class="grid">
     <div class="card full"><h2 data-desc="Estimated cost per calendar day. turn_cost includes subagent spend; the estimate uses the PRICE rates in tokcore.py.">Spend per day</h2><canvas id="cDay"></canvas></div>
     <div class="card"><h2 data-desc="Running total of cost across the selected range.">Cumulative spend</h2><canvas id="cCum"></canvas></div>
-    <div class="card"><h2 data-desc="Each point is one turn: main-loop tokens added (x) vs its cost (y). Hover for the project.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
+    <div class="card"><h2 data-desc="Each point is one turn: main-loop tokens added (x) vs its cost (y). Point color encodes time (older → recent), so drift in cost-per-token over time is visible. Hover for project + timestamp.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas>
+      <div class="heat-legend">older <i style="width:64px;background:linear-gradient(90deg,#6E8BFF,#3ECF8E)"></i> recent</div></div>
     <div class="card"><h2 data-desc="Share of total cost by project directory.">Spend by project</h2><canvas id="cProj"></canvas></div>
     <div class="card"><h2 data-desc="Share of total cost by model. Only turns that recorded a model id (newer rows) are counted.">Spend by model</h2><canvas id="cModel"></canvas></div>
   </div>
@@ -610,10 +611,16 @@ function render(){
       scales:{x:{type:"linear",...GRID.x,ticks:{callback:v=>fmtDay(v).slice(5)}},
               y:{min:0,max:100,...GRID.y,ticks:{callback:v=>v+"%"}}}}});
 
+  // color encodes time: older turns → blue, recent → accent green (rows are time-sorted)
+  const tmin = rows.length?rows[0].epoch:0, tspan = (rows.length?rows[rows.length-1].epoch:1)-tmin || 1;
+  const C_OLD=[110,139,255], C_NEW=[62,207,142];
+  const tcolor = t => { const k=Math.min(1,Math.max(0,(t-tmin)/tspan));
+    return `rgba(${Math.round(C_OLD[0]+(C_NEW[0]-C_OLD[0])*k)},${Math.round(C_OLD[1]+(C_NEW[1]-C_OLD[1])*k)},${Math.round(C_OLD[2]+(C_NEW[2]-C_OLD[2])*k)},.65)`; };
+  const sdata = rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project, t:r.epoch}));
   draw("scatter", "#cScatter", {type:"scatter",
-    data:{datasets:[{data:rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project})),
-      backgroundColor:"rgba(110,139,255,.5)", pointRadius:3, pointHoverRadius:5}]},
+    data:{datasets:[{data:sdata, backgroundColor:sdata.map(d=>tcolor(d.t)), pointRadius:3, pointHoverRadius:5}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{
+      title:i=>new Date(i[0].raw.t).toLocaleString(),
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
       scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
               y:{...GRID.y,title:{display:true,text:"cost",color:"#5B6470"},ticks:{callback:v=>"$"+v}}}}});
