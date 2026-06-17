@@ -43,9 +43,12 @@ def load(path):
 
 
 def session_cards():
-    """Flatten open-session snapshots into compact dicts for the HTML panel."""
+    """Flatten open-session info into compact dicts for the HTML panel.
+
+    Same source as `tokenscope grid`: all sessions with a live process (window=0).
+    """
     out = []
-    for s in discover_sessions(max_age=900):
+    for s in discover_sessions(max_age=0):
         cw = s.get("context_window") or {}
         out.append({
             "name": s.get("session_name") or (s.get("session_id", "")[:8]),
@@ -54,6 +57,8 @@ def session_cards():
             "ctx": cw.get("used_percentage") or 0,
             "cost": (s.get("cost") or {}).get("total_cost_usd", 0) or 0,
             "age": int(s.get("_age", 0)),
+            "status": s.get("_status", ""),
+            "has_snapshot": bool(s.get("_has_snapshot")),
         })
     return out
 
@@ -102,6 +107,13 @@ HTML = r"""<!doctype html>
   .ctxtrack{display:inline-block;width:90px;height:8px;border-radius:4px;background:var(--line);vertical-align:middle;overflow:hidden}
   .pill{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--exact);margin-right:6px;vertical-align:middle}
   .pill.idle{background:var(--gray)}
+  .muted{color:var(--gray)}
+  #liveBadge{display:none;align-items:center;gap:6px;font-size:12px;color:var(--exact);
+    border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+  #liveBadge::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--exact);
+    animation:pulse 1.6s infinite}
+  #liveBadge.stale{color:var(--partial)} #liveBadge.stale::before{background:var(--partial);animation:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
   .sess-note{color:var(--gray);font-size:11px;margin-top:8px}
   .legend{font-size:11px;color:var(--gray);margin-top:14px;line-height:1.7}
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
@@ -111,6 +123,7 @@ HTML = r"""<!doctype html>
 <body>
 <header>
   <h1><span class="z">token</span>scope · Claude Code spend</h1>
+  <span id="liveBadge">live</span>
   <div class="controls">
     <span><label>Project</label><select id="fProj"></select></span>
     <span><label>From</label><input type="date" id="fFrom"></span>
@@ -142,8 +155,10 @@ HTML = r"""<!doctype html>
   </div>
 </div>
 <script>
-const DATA = __DATA__;
-const SESSIONS = __SESSIONS__;
+let DATA = __DATA__;
+let SESSIONS = __SESSIONS__;
+const LIVE = __LIVE__;
+const POLL_MS = __POLL__;
 const $ = s => document.querySelector(s);
 const money = x => "$" + x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const toks = x => { const a=Math.abs(x), s=x<0?"-":"";
@@ -157,25 +172,39 @@ const fmtDay = e => { const d=new Date(e); return d.getFullYear()+"-"+
   String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 const fmtAge = s => s<90 ? s+"s" : s<5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h";
 
-// Active sessions panel (snapshot at generation)
-if (SESSIONS.length){
-  $("#sessCard").style.display = "";
+const selP = $("#fProj");
+
+function renderSessions(){
+  const card = $("#sessCard");
+  if (!SESSIONS.length){ card.style.display = "none"; return; }
+  card.style.display = "";
   $("#tSess tbody").innerHTML = SESSIONS.map(s=>{
     const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
-    return `<tr><td><span class="pill ${s.age<90?'':'idle'}"></span></td>`+
-      `<td>${s.name}</td><td>${s.project}</td><td>${s.model}</td>`+
-      `<td class="n"><span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%</td>`+
-      `<td class="n">${money(s.cost)}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
+    const ctxCell = s.has_snapshot
+      ? `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%`
+      : `<span class="muted">no turn yet</span>`;
+    const costCell = s.has_snapshot ? money(s.cost) : "—";
+    const cls = s.status==="busy" ? "" : "idle";
+    return `<tr><td><span class="pill ${cls}"></span></td>`+
+      `<td>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
+      `<td class="n">${ctxCell}</td>`+
+      `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
   }).join("");
 }
 
-const projects = [...new Set(DATA.map(r=>r.project))].sort();
-const selP = $("#fProj");
-selP.innerHTML = '<option value="">All projects</option>' +
-  projects.map(p=>`<option>${p}</option>`).join("");
-if (DATA.length){
-  $("#fFrom").value = fmtDay(DATA[0].epoch);
-  $("#fTo").value   = fmtDay(DATA[DATA.length-1].epoch);
+// Repopulate the project filter, preserving the current selection.
+function populateProjects(){
+  const cur = selP.value;
+  const projects = [...new Set(DATA.map(r=>r.project))].sort();
+  selP.innerHTML = '<option value="">All projects</option>' +
+    projects.map(p=>`<option>${p}</option>`).join("");
+  if (cur && projects.includes(cur)) selP.value = cur;
+}
+
+// Default the date range once (don't clobber a user's choice on live refresh).
+function initDates(){
+  if (DATA.length && !$("#fFrom").value) $("#fFrom").value = fmtDay(DATA[0].epoch);
+  if (DATA.length && !$("#fTo").value)   $("#fTo").value   = fmtDay(DATA[DATA.length-1].epoch);
 }
 
 let charts = {};
@@ -281,22 +310,46 @@ function render(){
 }
 
 [selP,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
-render();
+
+function boot(){ populateProjects(); initDates(); renderSessions(); render(); }
+boot();
+
+if (LIVE){
+  const badge = $("#liveBadge");
+  if (badge) badge.style.display = "inline-flex";
+  async function refresh(){
+    try{
+      const r = await fetch("data", {cache:"no-store"});
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      DATA = j.turns; SESSIONS = j.sessions;
+      populateProjects(); renderSessions(); render();
+      if (badge) badge.classList.remove("stale");
+    }catch(e){ if (badge) badge.classList.add("stale"); }
+  }
+  setInterval(refresh, POLL_MS);
+}
 </script>
 </body>
 </html>
 """
 
 
+def build_html(rows, sessions, live=False, poll_ms=5000):
+    return (HTML
+            .replace("__DATA__", json.dumps(rows, separators=(",", ":")))
+            .replace("__SESSIONS__", json.dumps(sessions, separators=(",", ":")))
+            .replace("__LIVE__", "true" if live else "false")
+            .replace("__POLL__", str(int(poll_ms)))
+            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M"))
+            .replace("__N__", str(len(rows))))
+
+
 def run(args):
     rows = load(args.log)
     if not rows:
         sys.exit("No turns in the log yet.")
-    html = (HTML
-            .replace("__DATA__", json.dumps(rows, separators=(",", ":")))
-            .replace("__SESSIONS__", json.dumps(session_cards(), separators=(",", ":")))
-            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M"))
-            .replace("__N__", str(len(rows))))
+    html = build_html(rows, session_cards(), live=False)
     with open(args.out, "w") as f:
         f.write(html)
     print(f"Wrote {args.out}  ({len(rows)} turns)")

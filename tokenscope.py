@@ -6,7 +6,8 @@ One entrypoint over a shared core (tokcore.py):
   tokenscope live        live single-session monitor (default — bare `tokenscope`)
   tokenscope grid        live view of ALL open sessions at once
   tokenscope report      historical CLI analysis of turn-log.jsonl  (was tokstats)
-  tokenscope dashboard   interactive HTML dashboard                 (was tokstats-dash)
+  tokenscope dashboard   static interactive HTML dashboard          (was tokstats-dash)
+  tokenscope serve       live HTML dashboard (local server, auto-refreshing)
 
 Backward compatible: bare `tokenscope` (with the old -i/-c/-f/--project flags)
 still launches the live monitor.
@@ -19,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tokcore import TURN_LOG  # noqa: E402
 
-SUBCOMMANDS = {"live", "grid", "report", "dashboard"}
+SUBCOMMANDS = {"live", "grid", "report", "dashboard", "serve"}
 
 
 def build_parser():
@@ -50,6 +51,13 @@ def build_parser():
     p_dash.add_argument("--log", default=TURN_LOG)
     p_dash.add_argument("--out", default=os.path.expanduser("~/.claude/tokstats-dashboard.html"))
     p_dash.add_argument("--no-open", action="store_true")
+
+    p_srv = sub.add_parser("serve", help="live auto-refreshing HTML dashboard (local server)")
+    p_srv.add_argument("--log", default=TURN_LOG)
+    p_srv.add_argument("--port", type=int, default=8765)
+    p_srv.add_argument("--host", default="127.0.0.1", help="bind address (default localhost only)")
+    p_srv.add_argument("-i", "--interval", type=float, default=5, help="browser poll seconds")
+    p_srv.add_argument("--no-open", action="store_true")
     return ap
 
 
@@ -69,6 +77,9 @@ def main():
     elif args.cmd == "dashboard":
         import dashboard
         dashboard.run(args)
+    elif args.cmd == "serve":
+        import serve
+        serve.run(args)
     else:
         import live
         live.run(args)

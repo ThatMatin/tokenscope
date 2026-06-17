@@ -12,7 +12,8 @@ One entrypoint over a shared core (`tokcore.py`):
 | `tokenscope live` | full-screen live monitor of the **current** session (default — bare `tokenscope`) |
 | `tokenscope grid` | live view of **all open sessions** at once, joined to Claude Code's session registry |
 | `tokenscope report` | historical CLI analysis of the turn log (was `tokstats`) |
-| `tokenscope dashboard` | self-contained interactive **HTML** dashboard (was `tokstats-dash`) |
+| `tokenscope dashboard` | self-contained interactive **HTML** dashboard, static `file://` (was `tokstats-dash`) |
+| `tokenscope serve` | the same dashboard **live** — a localhost server the page polls so charts + sessions auto-refresh |
 
 Bare `tokenscope` (with the old `-i/-c/-f/--project` flags) still launches `live`, so existing usage keeps working.
 
@@ -98,8 +99,13 @@ python3 tokenscope.py            # current session, stacked
 python3 tokenscope.py -c 2       # two columns
 python3 tokenscope.py grid       # all open sessions
 python3 tokenscope.py report --days 7
-python3 tokenscope.py dashboard  # writes + opens the HTML dashboard
+python3 tokenscope.py dashboard  # writes + opens the static HTML dashboard
+python3 tokenscope.py serve      # live dashboard at http://127.0.0.1:8765 (auto-refresh)
 ```
+
+`serve` binds to localhost only (the page carries your usage/cost data) and exposes a `/data`
+JSON endpoint the page polls every `-i` seconds; charts and the Active-sessions panel update in
+place. Use `dashboard` when you want a shareable static snapshot instead.
 
 Optionally alias it: `alias tokenscope='python3 /path/to/tokenscope.py'`
 (and, if you like, `tokstats` / `tokstats-dash` → the `report` / `dashboard` subcommands).
