@@ -213,13 +213,20 @@ let charts = {};
 // the grow-from-zero entry animation each poll).
 function draw(key, sel, config){
   const c = charts[key];
-  if (c){
-    c.data = config.data;
-    if (config.options) c.options = config.options;
-    c.update();
-  } else {
-    charts[key] = new Chart($(sel), config);
-  }
+  if (!c){ charts[key] = new Chart($(sel), config); return; }
+  // Update IN PLACE: keep the chart and each dataset OBJECT, swapping only their
+  // labels/data arrays. Replacing chart.data wholesale gives Chart.js new dataset
+  // objects, which it animates from zero — preserving identity makes it tween
+  // from the last frame instead.
+  const nd = config.data;
+  c.data.labels = nd.labels;
+  nd.datasets.forEach((ds, i) => {
+    if (c.data.datasets[i]) Object.assign(c.data.datasets[i], ds);
+    else c.data.datasets[i] = ds;
+  });
+  c.data.datasets.length = nd.datasets.length;
+  if (config.options) c.options = config.options;
+  c.update();
 }
 
 function filtered(){
