@@ -35,7 +35,8 @@ def make_handler(log_path, poll_ms):
                 self._send(html.encode("utf-8"), "text/html; charset=utf-8")
             elif path == "/data":
                 payload = {"turns": dashboard.load(log_path),
-                           "sessions": dashboard.session_cards()}
+                           "sessions": dashboard.session_cards(),
+                           "live": dashboard.live_status()}
                 self._send(json.dumps(payload, separators=(",", ":")).encode("utf-8"),
                            "application/json")
             else:

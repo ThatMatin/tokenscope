@@ -219,6 +219,20 @@ def read_rtk():
         return None
 
 
+def read_rtk_cache():
+    """Cheap read of the statusline's rtk cache ("[EPOCH] SAVED PCT") — no
+    subprocess, suitable for per-poll use. saved/pct are the last two tokens
+    (the epoch field is sometimes blank). Returns {"saved": "3.99M", "pct": 89.0}."""
+    try:
+        with open(RTK_CACHE) as fh:
+            parts = fh.read().split()
+        if len(parts) < 2:
+            return None
+        return {"saved": parts[-2], "pct": float(parts[-1])}
+    except Exception:
+        return None
+
+
 def read_daily(snap, now):
     """Synthesize a daily budget from the 7-day rolling limit.
 

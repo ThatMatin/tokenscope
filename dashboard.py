@@ -9,10 +9,12 @@ session view use `tokenscope grid` in a terminal.
 import json
 import os
 import sys
+import time
 import webbrowser
 from datetime import datetime, timezone
 
-from tokcore import TURN_LOG, discover_sessions
+from tokcore import (TURN_LOG, discover_sessions, read_daily, read_rtk_cache,
+                     read_snapshot)
 
 OUT = os.path.expanduser("~/.claude/tokstats-dashboard.html")
 
@@ -63,6 +65,32 @@ def session_cards():
     return out
 
 
+def live_status():
+    """Account-level live metrics that `tokenscope live` shows: current 5h/7d
+    usage limits, the synthesized daily budget, and rtk savings. From the global
+    snapshot, so it reflects the most recent turn across all sessions."""
+    out = {"rate_limits": None, "daily": None, "rtk": None}
+    snap = read_snapshot()
+    if snap:
+        rl = snap.get("rate_limits") or {}
+
+        def seg(k):
+            s = rl.get(k) or {}
+            p = s.get("used_percentage")
+            return None if p is None else {"pct": p, "resets_at": s.get("resets_at")}
+        if seg("five_hour") or seg("seven_day"):
+            out["rate_limits"] = {"five_hour": seg("five_hour"), "seven_day": seg("seven_day")}
+        d = read_daily(snap, time.time())
+        if d:
+            out["daily"] = {"frac": d["frac"], "limit": d["limit"],
+                            "used": d["used_today"], "sustainable": d["sustainable"],
+                            "days_left": d["days_left"]}
+    rtk = read_rtk_cache()
+    if rtk:
+        out["rtk"] = rtk
+    return out
+
+
 HTML = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -108,6 +136,10 @@ HTML = r"""<!doctype html>
   .pill{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--exact);margin-right:6px;vertical-align:middle}
   .pill.idle{background:var(--gray)}
   .muted{color:var(--gray)}
+  .livegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 24px}
+  .lv{display:flex;align-items:center;gap:8px;font-size:13px}
+  .lv .lvl{display:inline-block;width:42px;color:var(--dim)}
+  .lv b{font-variant-numeric:tabular-nums}
   #liveBadge{display:none;align-items:center;gap:6px;font-size:12px;color:var(--exact);
     border:1px solid var(--line);border-radius:20px;padding:3px 10px}
   #liveBadge::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--exact);
@@ -131,6 +163,10 @@ HTML = r"""<!doctype html>
   </div>
 </header>
 <div class="wrap">
+  <div class="card full" id="liveCard" style="margin-bottom:22px;display:none">
+    <h2>Usage limits &amp; budget <span id="liveMode" style="text-transform:none;font-weight:400"></span></h2>
+    <div id="liveBody" class="livegrid"></div>
+  </div>
   <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
     <h2>Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
     <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
@@ -160,6 +196,7 @@ HTML = r"""<!doctype html>
 <script>
 let DATA = __DATA__;
 let SESSIONS = __SESSIONS__;
+let LIVEINFO = __LIVE_INFO__;
 const LIVE = __LIVE__;
 const POLL_MS = __POLL__;
 const $ = s => document.querySelector(s);
@@ -180,6 +217,45 @@ const fmtDay = e => { const d=new Date(e); return d.getFullYear()+"-"+
 const fmtAge = s => s<90 ? s+"s" : s<5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h";
 
 const selP = $("#fProj");
+
+const lvlColor = p => p<60?COL.exact : p<85?COL.partial : COL.red;
+const pctBar = (p,c) => `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,Math.max(0,p))}%;background:${c}"></span></span>`;
+function fmtReset(epoch){
+  if(!epoch) return "";
+  let d = epoch - Math.floor(Date.now()/1000);
+  if(d<=0) return "now";
+  if(d>=86400) return Math.floor(d/86400)+"d"+Math.floor(d%86400/3600)+"h";
+  if(d>=3600)  return Math.floor(d/3600)+"h"+Math.floor(d%3600/60)+"m";
+  return Math.floor(d/60)+"m";
+}
+
+// Account-level live status: current 5h/7d limits, daily budget, rtk savings —
+// the same figures `tokenscope live` shows.
+function renderLive(){
+  const card = $("#liveCard");
+  const info = LIVEINFO || {};
+  const items = [];
+  const rl = info.rate_limits || {};
+  [["five_hour","5h"],["seven_day","7d"]].forEach(([k,lbl])=>{
+    const s = rl[k]; if(!s) return;
+    items.push(`<div class="lv"><span class="lvl">${lbl}</span>${pctBar(s.pct,lvlColor(s.pct))}`+
+      `<b>${s.pct.toFixed(0)}%</b><span class="muted">↻${fmtReset(s.resets_at)}</span></div>`);
+  });
+  const d = info.daily;
+  if(d){
+    const p = d.frac*100;
+    items.push(`<div class="lv"><span class="lvl">today</span>${pctBar(p,lvlColor(p))}`+
+      `<b>${p.toFixed(0)}%</b><span class="muted">of ${d.limit.toFixed(1)}%/day · `+
+      `${d.sustainable.toFixed(1)}%/day sustainable · ${d.days_left.toFixed(1)}d left</span></div>`);
+  }
+  const rtk = info.rtk;
+  if(rtk){
+    items.push(`<div class="lv"><span class="lvl">rtk</span>`+
+      `<b>↓${Number(rtk.pct).toFixed(0)}%</b><span class="muted">saved ${rtk.saved} tok</span></div>`);
+  }
+  card.style.display = items.length ? "" : "none";
+  $("#liveBody").innerHTML = items.join("");
+}
 
 function renderSessions(){
   const card = $("#sessCard");
@@ -377,16 +453,17 @@ function render(){
 
 [selP,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
 
-// Mode-aware labels: in serve mode the panel really is live; the static file isn't.
+// Mode-aware labels: in serve mode the panels really are live; the static file isn't.
+const modeTxt = LIVE ? `(live · every ${Math.round(POLL_MS/1000)}s)` : "(snapshot at generation)";
+$("#sessMode").textContent = modeTxt;
+$("#liveMode").textContent = modeTxt;
 if (LIVE){
-  $("#sessMode").textContent = `(live · every ${Math.round(POLL_MS/1000)}s)`;
   $("#sessNote").innerHTML = "Live — polled from the running <code>tokenscope serve</code>.";
 } else {
-  $("#sessMode").textContent = "(snapshot at generation)";
   $("#sessNote").innerHTML = "Static snapshot — for a live view run <code>tokenscope serve</code> (or <code>tokenscope grid</code> in a terminal).";
 }
 
-function boot(){ populateProjects(); initDates(); renderSessions(); render(); }
+function boot(){ renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
 boot();
 
 if (LIVE){
@@ -397,8 +474,8 @@ if (LIVE){
       const r = await fetch("data", {cache:"no-store"});
       if (!r.ok) throw new Error(r.status);
       const j = await r.json();
-      DATA = j.turns; SESSIONS = j.sessions;
-      populateProjects(); renderSessions(); render();
+      DATA = j.turns; SESSIONS = j.sessions; LIVEINFO = j.live;
+      renderLive(); populateProjects(); renderSessions(); render();
       if (badge) badge.classList.remove("stale");
     }catch(e){ if (badge) badge.classList.add("stale"); }
   }
@@ -414,6 +491,7 @@ def build_html(rows, sessions, live=False, poll_ms=5000):
     return (HTML
             .replace("__DATA__", json.dumps(rows, separators=(",", ":")))
             .replace("__SESSIONS__", json.dumps(sessions, separators=(",", ":")))
+            .replace("__LIVE_INFO__", json.dumps(live_status(), separators=(",", ":")))
             .replace("__LIVE__", "true" if live else "false")
             .replace("__POLL__", str(int(poll_ms)))
             .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M"))
