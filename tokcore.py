@@ -276,6 +276,30 @@ def read_daily(snap, now):
 
 
 # --- multi-session discovery ---------------------------------------------
+_token_stats_cache = {}  # transcript path -> (mtime, stats subset)
+
+
+def session_token_stats(path):
+    """Per-session cache-hit and in:out, aggregated from the transcript (same
+    source as `tokenscope live`). Cached by file mtime so an unchanged transcript
+    is parsed at most once across polls."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    hit = _token_stats_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    t = read_session(path)["totals"]
+    in_side = t["input"] + t["cache_read"] + t["cache_5m"] + t["cache_1h"]
+    sub = {
+        "cache_hit": (t["cache_read"] / in_side) if in_side else 0,
+        "io_ratio": (in_side / t["output"]) if t["output"] else 0,
+    }
+    _token_stats_cache[path] = (mtime, sub)
+    return sub
+
+
 def _pid_alive(pid):
     try:
         os.kill(int(pid), 0)
@@ -326,6 +350,12 @@ def discover_sessions(max_age=900):
         merged["_age"] = age
         merged["_status"] = reg.get("status", "")
         merged["_has_snapshot"] = bool(snap)
+        tp = snap.get("transcript_path")
+        if tp and os.path.exists(tp):
+            ts = session_token_stats(tp)
+            if ts:
+                merged["cache_hit"] = ts["cache_hit"]
+                merged["io_ratio"] = ts["io_ratio"]
         out.append(merged)
     out.sort(key=lambda d: d.get("_age", 1e9))
     return out

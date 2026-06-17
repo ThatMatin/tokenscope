@@ -38,16 +38,22 @@ def session_row(s, namew):
         # Registry-only: session exists but hasn't written a snapshot yet.
         ctx = f"{C['dim']}{'(no turn yet)':<19}{C['x']}"
         return (f"  {live} {C['b']}{vpad(name, namew)}{C['x']}  "
-                f"{C['dim']}{proj:<18}{C['x']} {'?':<10}  {ctx} {C['dim']}{'—':>9}{C['x']}  "
+                f"{C['dim']}{proj:<18}{C['x']} {'?':<10}  {ctx} {C['dim']}{'—':>7}{C['x']} "
+                f"{C['dim']}{'—':>6}{C['x']} {C['dim']}{'—':>9}{C['x']}  "
                 f"{C['dim']}{age:>4} ago{C['x']}")
     cw = s.get("context_window") or {}
     pct = cw.get("used_percentage")
     frac = (pct / 100) if pct is not None else 0
     model = (s.get("model") or {}).get("display_name", "?")[:10]
     cost = (s.get("cost") or {}).get("total_cost_usd", 0) or 0
+    hit = s.get("cache_hit")
+    io = s.get("io_ratio")
+    hit_s = f"{hit*100:4.0f}%" if hit is not None else "   ?"
+    io_s = f"{io:4.0f}:1" if io else "   ?"
     return (f"  {live} {C['b']}{vpad(name, namew)}{C['x']}  "
             f"{C['dim']}{proj:<18}{C['x']} {model:<10}  "
             f"{colorbar(frac, 12)} {(pct or 0):4.1f}%  "
+            f"{C['dim']}hit{C['x']} {hit_s} {C['dim']}io{C['x']} {io_s}  "
             f"{C['g']}{money(cost):>9}{C['x']}  {C['dim']}{age:>4} ago{C['x']}")
 
 
@@ -87,7 +93,7 @@ def render(sessions, now, refresh, max_age):
     else:
         namew = min(28, max(10, max(len(s.get("session_name") or "") for s in sessions)))
         out.append(f"  {C['dim']}  {'session':<{namew}}  {'project':<18} {'model':<10}  "
-                   f"{'context':<19} {'cost':>9}{C['x']}")
+                   f"{'context':<19} {'cache/io':<13} {'cost':>9}{C['x']}")
         for s in sessions:
             out.append(session_row(s, namew))
         tot = sum((x.get("cost") or {}).get("total_cost_usd", 0) or 0 for x in sessions)

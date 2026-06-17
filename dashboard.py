@@ -61,6 +61,8 @@ def session_cards():
             "age": int(s.get("_age", 0)),
             "status": s.get("_status", ""),
             "has_snapshot": bool(s.get("_has_snapshot")),
+            "cache_hit": s.get("cache_hit"),
+            "io_ratio": s.get("io_ratio"),
         })
     return out
 
@@ -169,7 +171,7 @@ HTML = r"""<!doctype html>
   </div>
   <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
     <h2>Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
-    <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
+    <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cache hit</th><th class="n">In:out</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
     <div class="sess-note" id="sessNote"></div>
   </div>
   <div class="kpis" id="kpis"></div>
@@ -267,10 +269,13 @@ function renderSessions(){
       ? `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%`
       : `<span class="muted">no turn yet</span>`;
     const costCell = s.has_snapshot ? money(s.cost) : "—";
+    const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
+    const ioCell  = s.io_ratio ? s.io_ratio.toFixed(0)+":1" : '<span class="muted">—</span>';
     const cls = s.status==="busy" ? "" : "idle";
     return `<tr><td><span class="pill ${cls}"></span></td>`+
       `<td>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
       `<td class="n">${ctxCell}</td>`+
+      `<td class="n">${hitCell}</td><td class="n">${ioCell}</td>`+
       `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
   }).join("");
 }
