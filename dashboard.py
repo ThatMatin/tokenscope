@@ -127,6 +127,17 @@ HTML = r"""<!doctype html>
   select,input{background:var(--card-2);color:var(--txt);border:1px solid var(--line-2);
     border-radius:8px;padding:7px 10px;font-size:13px;font-family:var(--font)}
   select:focus,input:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--card-2);color:var(--txt);border:1px solid var(--line-2);
+    border-radius:8px;padding:7px 12px;font:500 12px var(--font);cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  /* activity heatmap */
+  .heat{display:grid;grid-template-columns:34px repeat(24,1fr);gap:3px;align-items:center}
+  .heat .hh{font-size:10px;color:var(--faint);text-align:center}
+  .heat .dl{font-size:10px;color:var(--faint);text-align:right;padding-right:6px}
+  .heat .cell{aspect-ratio:1;border-radius:3px;background:var(--line);min-height:13px}
+  .heat-legend{display:flex;align-items:center;gap:6px;justify-content:flex-end;
+    margin-top:10px;font-size:11px;color:var(--faint)}
+  .heat-legend i{width:13px;height:13px;border-radius:3px;display:inline-block}
   label{color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-right:5px}
   .wrap{padding:26px 30px;max-width:1320px;margin:0 auto}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin-bottom:24px}
@@ -196,8 +207,10 @@ HTML = r"""<!doctype html>
   <span id="liveBadge">live</span>
   <div class="controls">
     <span><label>Project</label><select id="fProj"></select></span>
+    <span><label>Model</label><select id="fModel"></select></span>
     <span><label>From</label><input type="date" id="fFrom"></span>
     <span><label>To</label><input type="date" id="fTo"></span>
+    <button id="exportBtn" title="Download the filtered turns as CSV">Export CSV</button>
   </div>
 </header>
 <div class="wrap">
@@ -226,7 +239,21 @@ HTML = r"""<!doctype html>
 
   <div class="section">Tokens &amp; cache</div>
   <div class="grid">
-    <div class="card full"><h2 data-desc="Cache read vs cache write tokens per day — usually the bulk of traffic, and far cheaper than fresh input.">Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
+    <div class="card"><h2 data-desc="Cache read vs cache write tokens per day — usually the bulk of traffic, and far cheaper than fresh input.">Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
+    <div class="card"><h2 data-desc="Daily cache-hit ratio: cache_read / (read + write). Higher = more of your context is served cheaply from cache.">Cache-hit % per day</h2><canvas id="cHit"></canvas></div>
+  </div>
+
+  <div class="section">Context window</div>
+  <div class="grid">
+    <div class="card full"><h2 data-desc="Context-window fill % at each turn. Red markers are compactions (turn_tokens<0) — where context was trimmed/cleared.">Context fill &amp; compactions</h2><canvas id="cCtx"></canvas></div>
+  </div>
+
+  <div class="section">Activity</div>
+  <div class="grid">
+    <div class="card full"><h2 data-desc="Spend by hour-of-day and weekday (local time) — darker = more cost. Reveals when your usage concentrates.">Activity heatmap (spend by hour × weekday)</h2>
+      <div id="heat" class="heat"></div>
+      <div class="heat-legend">less <i style="background:var(--line)"></i><i style="background:rgba(62,207,142,.35)"></i><i style="background:rgba(62,207,142,.65)"></i><i style="background:var(--accent)"></i> more</div>
+    </div>
   </div>
 
   <div class="section">Usage limits over time</div>
@@ -302,6 +329,7 @@ const fmtDay = e => { const d=new Date(e); return d.getFullYear()+"-"+
 const fmtAge = s => s<90 ? s+"s" : s<5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h";
 
 const selP = $("#fProj");
+const selM = $("#fModel");
 
 const lvlColor = p => p<60?COL.exact : p<85?COL.partial : COL.red;
 const pctBar = (p,c) => `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,Math.max(0,p))}%;background:${c}"></span></span>`;
@@ -363,19 +391,60 @@ function renderSessions(){
   }).join("");
 }
 
-// Repopulate the project filter, preserving the current selection.
+// Repopulate the project/model filters, preserving the current selection.
 function populateProjects(){
   const cur = selP.value;
   const projects = [...new Set(DATA.map(r=>r.project))].sort();
   selP.innerHTML = '<option value="">All projects</option>' +
     projects.map(p=>`<option>${p}</option>`).join("");
   if (cur && projects.includes(cur)) selP.value = cur;
+
+  const curM = selM.value;
+  const models = [...new Set(DATA.map(r=>r.model).filter(Boolean))].sort();
+  selM.innerHTML = '<option value="">All models</option>' +
+    models.map(m=>`<option value="${m}">${modelShort(m)}</option>`).join("");
+  if (curM && models.includes(curM)) selM.value = curM;
 }
 
 // Default the date range once (don't clobber a user's choice on live refresh).
 function initDates(){
   if (DATA.length && !$("#fFrom").value) $("#fFrom").value = fmtDay(DATA[0].epoch);
   if (DATA.length && !$("#fTo").value)   $("#fTo").value   = fmtDay(DATA[DATA.length-1].epoch);
+}
+
+// Activity heatmap: 7 weekdays × 24 hours, cell opacity scaled to cost (local time).
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function renderHeatmap(rows){
+  const grid = Array.from({length:7},()=>new Array(24).fill(0));
+  rows.forEach(r=>{ const d=new Date(r.epoch); grid[d.getDay()][d.getHours()] += r.turn_cost||0; });
+  let max=0; grid.forEach(row=>row.forEach(v=>{ if(v>max) max=v; }));
+  const bg = v => (!max||!v) ? "var(--line)" : `rgba(62,207,142,${(0.16+v/max*0.84).toFixed(3)})`;
+  let html = '<div class="hh"></div>' +
+    Array.from({length:24},(_,h)=>`<div class="hh">${h%6===0?h:""}</div>`).join("");
+  for(let d=0; d<7; d++){
+    html += `<div class="dl">${DOW[d]}</div>`;
+    for(let h=0; h<24; h++){
+      const v = grid[d][h];
+      html += `<div class="cell" style="background:${bg(v)}" title="${DOW[d]} ${h}:00 — ${money(v)}"></div>`;
+    }
+  }
+  $("#heat").innerHTML = html;
+}
+
+// Export the currently-filtered turns as CSV (all logged fields).
+function exportCSV(){
+  const rows = filtered();
+  const cols = ["ts","session","project","model","turn","turn_tokens","turn_cost",
+    "cum_tokens","cum_cost","context_pct","ctx_window","cache_read","cache_create",
+    "five_h_pct","seven_d_pct"];
+  const esc = v => { if(v==null) return ""; const s=String(v);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const lines = [cols.join(",")].concat(rows.map(r=>cols.map(c=>esc(r[c])).join(",")));
+  const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "tokenscope-export.csv"; a.click();
+  URL.revokeObjectURL(url);
 }
 
 let charts = {};
@@ -401,10 +470,10 @@ function draw(key, sel, config){
 }
 
 function filtered(){
-  const p = selP.value;
+  const p = selP.value, m = selM.value;
   const from = $("#fFrom").value ? new Date($("#fFrom").value+"T00:00").getTime() : -Infinity;
   const to   = $("#fTo").value   ? new Date($("#fTo").value+"T23:59:59").getTime() : Infinity;
-  return DATA.filter(r => (!p||r.project===p) && r.epoch>=from && r.epoch<=to);
+  return DATA.filter(r => (!p||r.project===p) && (!m||r.model===m) && r.epoch>=from && r.epoch<=to);
 }
 
 function peakWindow(rows, hours=5){
@@ -435,6 +504,7 @@ function render(){
     ["border", toks(cacheTot), "Cache tokens"],
     ["border", money(peak), "Peak 5h window"],
     ["red", money(maxTurn), "Priciest turn"],
+    ["partial", money(totCost/days*7), "Proj. weekly"],
     ["exact", rows.length+" / "+sessions, "Turns / sessions"],
   ];
   $("#kpis").innerHTML = kpi.map(([c,v,l])=>
@@ -488,6 +558,32 @@ function render(){
       tooltip:{callbacks:{label:c=>c.dataset.label+": "+toks(c.parsed.y)}}},
       scales:{x:{stacked:true,...GRID.x},y:{stacked:true,...GRID.y,ticks:{callback:v=>toks(v)}}}}});
 
+  // cache-hit % per day = read / (read + write)
+  const hk = ck.map(d=>{ const o=byDayC[d]; const tot=o.rd+o.wr; return tot? o.rd/tot*100 : null; });
+  draw("hit", "#cHit", {type:"line",
+    data:{labels:ck, datasets:[{data:hk, borderColor:COL.exact, backgroundColor:grad(COL.exact),
+      fill:true, spanGaps:true}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{
+      label:c=>"cache hit "+(c.parsed.y==null?"—":c.parsed.y.toFixed(0)+"%")}}},
+      scales:{x:GRID.x, y:{min:0,max:100,...GRID.y,ticks:{callback:v=>v+"%"}}}}});
+
+  // context fill % over time + compaction markers (turn_tokens < 0)
+  const ctxLine = rows.map(r=>({x:r.epoch, y:r.context_pct==null?null:r.context_pct}));
+  const compactions = rows.filter(r=>(r.turn_tokens||0)<0).map(r=>({x:r.epoch, y:r.context_pct||0}));
+  draw("ctx", "#cCtx", {type:"line",
+    data:{datasets:[
+      {label:"context %", data:ctxLine, borderColor:COL.border, backgroundColor:grad(COL.border),
+        fill:true, spanGaps:true},
+      {label:"compaction", data:compactions, type:"scatter", showLine:false,
+        backgroundColor:COL.red, pointRadius:4, pointHoverRadius:6}]},
+    options:{parsing:false, plugins:{legend:{position:"top",labels:{boxWidth:10,boxHeight:10,font:{size:11}}},
+      tooltip:{callbacks:{title:i=>new Date(i[0].parsed.x).toLocaleString(),
+        label:c=>c.dataset.label==="compaction"?"compaction @ "+c.parsed.y+"%":"context "+c.parsed.y+"%"}}},
+      scales:{x:{type:"linear",...GRID.x,ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{min:0,max:100,...GRID.y,ticks:{callback:v=>v+"%"}}}}});
+
+  renderHeatmap(rows);
+
   const span=5*3600*1000; let lo=0,r5=0; const roll=[];
   for(let hi=0;hi<rows.length;hi++){ r5+=rows[hi].turn_cost||0;
     while(rows[hi].epoch-rows[lo].epoch>span){ r5-=rows[lo].turn_cost||0; lo++; }
@@ -535,7 +631,8 @@ function render(){
   }).join("");
 }
 
-[selP,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
+[selP,selM,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
+$("#exportBtn").addEventListener("click",exportCSV);
 
 // Mode-aware labels: in serve mode the panels really are live; the static file isn't.
 const modeTxt = LIVE ? `(live · every ${Math.round(POLL_MS/1000)}s)` : "(snapshot at generation)";
