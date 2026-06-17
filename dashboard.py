@@ -132,9 +132,9 @@ HTML = r"""<!doctype html>
 </header>
 <div class="wrap">
   <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
-    <h2>Active sessions <span style="text-transform:none;font-weight:400">(snapshot at generation)</span></h2>
+    <h2>Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
     <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
-    <div class="sess-note">Static snapshot — for a continuously-live view run <code>tokenscope grid</code> in a terminal.</div>
+    <div class="sess-note" id="sessNote"></div>
   </div>
   <div class="kpis" id="kpis"></div>
   <div class="grid">
@@ -208,7 +208,19 @@ function initDates(){
 }
 
 let charts = {};
-function destroy(){ Object.values(charts).forEach(c=>c&&c.destroy()); charts={}; }
+// Create the chart on first call; afterwards mutate its data and animate the
+// transition (so a live refresh morphs from the last state instead of replaying
+// the grow-from-zero entry animation each poll).
+function draw(key, sel, config){
+  const c = charts[key];
+  if (c){
+    c.data = config.data;
+    if (config.options) c.options = config.options;
+    c.update();
+  } else {
+    charts[key] = new Chart($(sel), config);
+  }
+}
 
 function filtered(){
   const p = selP.value;
@@ -230,7 +242,6 @@ function peakWindow(rows, hours=5){
 
 function render(){
   const rows = filtered();
-  destroy();
   const totCost = rows.reduce((a,r)=>a+(r.turn_cost||0),0);
   const posTok  = rows.reduce((a,r)=>a+Math.max(0,r.turn_tokens||0),0);
   const sessions = new Set(rows.map(r=>r.session)).size;
@@ -252,7 +263,7 @@ function render(){
   const byDay = {};
   rows.forEach(r=>{ const d=fmtDay(r.epoch); (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].c+=r.turn_cost||0; byDay[d].t+=Math.max(0,r.turn_tokens||0); });
   const days_k = Object.keys(byDay).sort();
-  charts.day = new Chart($("#cDay"), {type:"bar",
+  draw("day", "#cDay", {type:"bar",
     data:{labels:days_k, datasets:[{label:"Spend",data:days_k.map(d=>byDay[d].c),
       backgroundColor:COL.exact, borderRadius:5}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.y)+
@@ -260,7 +271,7 @@ function render(){
       scales:{y:{ticks:{callback:v=>"$"+v}}}}});
 
   let run=0; const cum = rows.map(r=>({x:r.epoch, y:(run+=r.turn_cost||0)}));
-  charts.cum = new Chart($("#cCum"), {type:"line",
+  draw("cum", "#cCum", {type:"line",
     data:{datasets:[{data:cum, borderColor:COL.exact, backgroundColor:"rgba(46,182,125,.12)",
       fill:true, tension:.25, pointRadius:0, borderWidth:2}]},
     options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
@@ -271,7 +282,7 @@ function render(){
   const byP={}; rows.forEach(r=>byP[r.project]=(byP[r.project]||0)+(r.turn_cost||0));
   const pe=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
   const palette=["#2eb67d","#36c5f0","#ecb22e","#e01e5a","#9b87f5","#6b7280","#e8912d","#4cd4b0"];
-  charts.proj = new Chart($("#cProj"), {type:"doughnut",
+  draw("proj", "#cProj", {type:"doughnut",
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
       backgroundColor:palette, borderColor:"#161b22", borderWidth:2}]},
     options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
@@ -281,7 +292,7 @@ function render(){
   for(let hi=0;hi<rows.length;hi++){ r5+=rows[hi].turn_cost||0;
     while(rows[hi].epoch-rows[lo].epoch>span){ r5-=rows[lo].turn_cost||0; lo++; }
     roll.push({x:rows[hi].epoch, y:r5}); }
-  charts.roll = new Chart($("#cRoll"), {type:"line",
+  draw("roll", "#cRoll", {type:"line",
     data:{datasets:[{data:roll, borderColor:COL.border, backgroundColor:"rgba(54,197,240,.10)",
       fill:true, tension:.2, pointRadius:0, borderWidth:2}]},
     options:{parsing:false, plugins:{legend:{display:false},tooltip:{callbacks:{
@@ -290,7 +301,7 @@ function render(){
       scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
               y:{ticks:{callback:v=>"$"+v}}}}});
 
-  charts.scatter = new Chart($("#cScatter"), {type:"scatter",
+  draw("scatter", "#cScatter", {type:"scatter",
     data:{datasets:[{data:rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project})),
       backgroundColor:"rgba(54,197,240,.55)", pointRadius:4}]},
     options:{plugins:{legend:{display:false},tooltip:{callbacks:{
@@ -310,6 +321,15 @@ function render(){
 }
 
 [selP,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
+
+// Mode-aware labels: in serve mode the panel really is live; the static file isn't.
+if (LIVE){
+  $("#sessMode").textContent = `(live · every ${Math.round(POLL_MS/1000)}s)`;
+  $("#sessNote").innerHTML = "Live — polled from the running <code>tokenscope serve</code>.";
+} else {
+  $("#sessMode").textContent = "(snapshot at generation)";
+  $("#sessNote").innerHTML = "Static snapshot — for a live view run <code>tokenscope serve</code> (or <code>tokenscope grid</code> in a terminal).";
+}
 
 function boot(){ populateProjects(); initDates(); renderSessions(); render(); }
 boot();
