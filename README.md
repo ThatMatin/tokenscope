@@ -103,6 +103,10 @@ python3 tokenscope.py dashboard  # writes + opens the static HTML dashboard
 python3 tokenscope.py serve      # live dashboard at http://127.0.0.1:8765 (auto-refresh)
 ```
 
+The HTML dashboard charts every field the turn log records: spend per day / cumulative / by
+project / **by model**, cost-vs-tokens, the 5-hour rolling window, **cache tokens per day**
+(read vs. write — usually the bulk of traffic), and **rate-limit burn over time** (5h / 7d %).
+
 `serve` binds to localhost only (the page carries your usage/cost data) and exposes a `/data`
 JSON endpoint the page polls every `-i` seconds; charts and the Active-sessions panel update in
 place. Use `dashboard` when you want a shareable static snapshot instead.

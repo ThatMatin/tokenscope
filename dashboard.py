@@ -141,10 +141,13 @@ HTML = r"""<!doctype html>
     <div class="card full"><h2>Spend per day</h2><canvas id="cDay"></canvas></div>
     <div class="card"><h2>Cumulative spend</h2><canvas id="cCum"></canvas></div>
     <div class="card"><h2>Spend by project</h2><canvas id="cProj"></canvas></div>
-    <div class="card full"><h2>5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
+    <div class="card"><h2>Spend by model</h2><canvas id="cModel"></canvas></div>
     <div class="card"><h2>Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
-    <div class="card"><h2>Top 12 turns by cost</h2>
-      <table id="tTop"><thead><tr><th>When</th><th>Project</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
+    <div class="card full"><h2>Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
+    <div class="card full"><h2>5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
+    <div class="card full"><h2>Rate-limit burn over time (5h / 7d %)</h2><canvas id="cLimits"></canvas></div>
+    <div class="card full"><h2>Top 12 turns by cost</h2>
+      <table id="tTop"><thead><tr><th>When</th><th>Project</th><th>Model</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Cache</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
   <div class="legend">
@@ -164,6 +167,10 @@ const money = x => "$" + x.toLocaleString(undefined,{minimumFractionDigits:2,max
 const toks = x => { const a=Math.abs(x), s=x<0?"-":"";
   return a>=1e6 ? s+(a/1e6).toFixed(2)+"M" : a>=1e3 ? s+(a/1e3).toFixed(1)+"K" : s+a; };
 const COL = {exact:"#2eb67d", partial:"#ecb22e", border:"#36c5f0", red:"#e01e5a"};
+const PALETTE = ["#2eb67d","#36c5f0","#ecb22e","#e01e5a","#9b87f5","#6b7280","#e8912d","#4cd4b0"];
+// claude-opus-4-8 -> Opus 4-8 ; claude-3-5-haiku-20241022 -> 3-5-haiku ...
+const modelShort = m => !m ? "?" : m.replace(/^claude-/,"").replace(/-\d{8}$/,"")
+  .replace(/^(opus|sonnet|haiku)/i, s=>s[0].toUpperCase()+s.slice(1));
 Chart.defaults.color = "#9aa0a6";
 Chart.defaults.borderColor = "#222b36";
 Chart.defaults.font.family = "-apple-system,Segoe UI,Roboto,sans-serif";
@@ -251,6 +258,7 @@ function render(){
   const rows = filtered();
   const totCost = rows.reduce((a,r)=>a+(r.turn_cost||0),0);
   const posTok  = rows.reduce((a,r)=>a+Math.max(0,r.turn_tokens||0),0);
+  const cacheTot = rows.reduce((a,r)=>a+(r.cache_read||0)+(r.cache_create||0),0);
   const sessions = new Set(rows.map(r=>r.session)).size;
   const days = new Set(rows.map(r=>fmtDay(r.epoch))).size || 1;
   const costs = rows.map(r=>r.turn_cost||0);
@@ -260,6 +268,7 @@ function render(){
     ["exact", money(totCost), "Total spend"],
     ["exact", money(totCost/days), "Per day"],
     ["partial", toks(posTok), "Tokens added"],
+    ["border", toks(cacheTot), "Cache tokens"],
     ["border", money(peak), "Peak 5h window"],
     ["red", money(maxTurn), "Priciest turn"],
     ["exact", rows.length+" / "+sessions, "Turns / sessions"],
@@ -288,12 +297,33 @@ function render(){
 
   const byP={}; rows.forEach(r=>byP[r.project]=(byP[r.project]||0)+(r.turn_cost||0));
   const pe=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
-  const palette=["#2eb67d","#36c5f0","#ecb22e","#e01e5a","#9b87f5","#6b7280","#e8912d","#4cd4b0"];
   draw("proj", "#cProj", {type:"doughnut",
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
-      backgroundColor:palette, borderColor:"#161b22", borderWidth:2}]},
+      backgroundColor:PALETTE, borderColor:"#161b22", borderWidth:2}]},
     options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
       tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
+
+  // by model (only rows that recorded a model — older rows predate that field)
+  const byM={}; rows.forEach(r=>{ if(r.model) byM[r.model]=(byM[r.model]||0)+(r.turn_cost||0); });
+  const me=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
+  draw("model", "#cModel", {type:"doughnut",
+    data:{labels:me.map(e=>modelShort(e[0])), datasets:[{data:me.map(e=>e[1]),
+      backgroundColor:PALETTE, borderColor:"#161b22", borderWidth:2}]},
+    options:{plugins:{legend:{position:"right",labels:{boxWidth:11,font:{size:11}}},
+      tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
+
+  // cache tokens per day — read vs write, stacked (the bulk of traffic)
+  const byDayC={};
+  rows.forEach(r=>{ const d=fmtDay(r.epoch); const o=(byDayC[d]=byDayC[d]||{rd:0,wr:0});
+    o.rd+=r.cache_read||0; o.wr+=r.cache_create||0; });
+  const ck=Object.keys(byDayC).sort();
+  draw("cache", "#cCache", {type:"bar",
+    data:{labels:ck, datasets:[
+      {label:"cache read", data:ck.map(d=>byDayC[d].rd), backgroundColor:COL.border, stack:"c", borderRadius:4},
+      {label:"cache write", data:ck.map(d=>byDayC[d].wr), backgroundColor:COL.partial, stack:"c", borderRadius:4}]},
+    options:{plugins:{legend:{position:"top",labels:{boxWidth:11,font:{size:11}}},
+      tooltip:{callbacks:{label:c=>c.dataset.label+": "+toks(c.parsed.y)}}},
+      scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>toks(v)}}}}});
 
   const span=5*3600*1000; let lo=0,r5=0; const roll=[];
   for(let hi=0;hi<rows.length;hi++){ r5+=rows[hi].turn_cost||0;
@@ -308,6 +338,22 @@ function render(){
       scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
               y:{ticks:{callback:v=>"$"+v}}}}});
 
+  // rate-limit burn over time — 5h / 7d %, only rows that carry the fields
+  const rl = rows.filter(r=>r.five_h_pct!=null || r.seven_d_pct!=null);
+  draw("limits", "#cLimits", {type:"line",
+    data:{datasets:[
+      {label:"5h %", data:rl.map(r=>({x:r.epoch,y:r.five_h_pct??null})),
+        borderColor:COL.partial, backgroundColor:"rgba(236,178,46,.10)", fill:false,
+        tension:.2, pointRadius:0, borderWidth:2, spanGaps:true},
+      {label:"7d %", data:rl.map(r=>({x:r.epoch,y:r.seven_d_pct??null})),
+        borderColor:COL.red, backgroundColor:"rgba(224,30,90,.10)", fill:false,
+        tension:.2, pointRadius:0, borderWidth:2, spanGaps:true}]},
+    options:{parsing:false, plugins:{legend:{position:"top",labels:{boxWidth:11,font:{size:11}}},
+      tooltip:{callbacks:{title:i=>new Date(i[0].parsed.x).toLocaleString(),
+        label:c=>c.dataset.label+" "+c.parsed.y+"%"}}},
+      scales:{x:{type:"linear",ticks:{callback:v=>fmtDay(v).slice(5)}},
+              y:{min:0,max:100,ticks:{callback:v=>v+"%"}}}}});
+
   draw("scatter", "#cScatter", {type:"scatter",
     data:{datasets:[{data:rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project})),
       backgroundColor:"rgba(54,197,240,.55)", pointRadius:4}]},
@@ -321,8 +367,10 @@ function render(){
     const d=new Date(r.epoch);
     return `<tr><td>${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</td>`+
       `<td>${(r.project||"").slice(0,16)}</td>`+
+      `<td>${modelShort(r.model)}</td>`+
       `<td class="n">${money(r.turn_cost||0)}</td>`+
       `<td class="n">${toks(r.turn_tokens||0)}</td>`+
+      `<td class="n">${toks((r.cache_read||0)+(r.cache_create||0))}</td>`+
       `<td class="n">${r.context_pct??""}%</td></tr>`;
   }).join("");
 }
