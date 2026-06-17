@@ -27,8 +27,8 @@ def session_row(s, namew):
     name = (s.get("session_name") or s.get("session_id", "")[:8] or "?")[:namew]
     proj = os.path.basename((s.get("workspace") or {}).get("current_dir", "") or "")[:18]
     age = fmt_age(s.get("_age", 0))
-    # ● busy (running a turn) · ◍ recently active · ○ idle.
-    if s.get("_status") == "busy":
+    # ● busy/waiting (running a turn or awaiting a tool) · ◍ recently active · ○ idle.
+    if s.get("_status") in ("busy", "waiting"):
         live = f"{C['g']}●{C['x']}"
     elif s.get("_age", 1e9) < 120:
         live = f"{C['y']}◍{C['x']}"

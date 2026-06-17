@@ -127,6 +127,9 @@ HTML = r"""<!doctype html>
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:600;
     text-transform:uppercase;letter-spacing:.5px}
+  h2[title]{cursor:help}
+  h2[title]::after{content:" ⓘ";color:var(--gray);font-size:9px;vertical-align:super;opacity:.6}
+  .kpi[title]{cursor:help}
   .card.full{grid-column:1/-1}
   canvas{max-height:300px}
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -166,25 +169,25 @@ HTML = r"""<!doctype html>
 </header>
 <div class="wrap">
   <div class="card full" id="liveCard" style="margin-bottom:22px;display:none">
-    <h2>Usage limits &amp; budget <span id="liveMode" style="text-transform:none;font-weight:400"></span></h2>
+    <h2 title="Current 5h/7d subscription rate-limit usage, the daily budget synthesized from the 7-day window, and rtk proxy savings. Account-wide, from the latest turn.">Usage limits &amp; budget <span id="liveMode" style="text-transform:none;font-weight:400"></span></h2>
     <div id="liveBody" class="livegrid"></div>
   </div>
   <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
-    <h2>Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
+    <h2 title="Every Claude Code session with a live process — joined from the session registry (names, liveness) and per-session snapshots (cost, context). Cache hit & in:out are aggregated from each transcript.">Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
     <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cache hit</th><th class="n">In:out</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
     <div class="sess-note" id="sessNote"></div>
   </div>
   <div class="kpis" id="kpis"></div>
   <div class="grid">
-    <div class="card full"><h2>Spend per day</h2><canvas id="cDay"></canvas></div>
-    <div class="card"><h2>Cumulative spend</h2><canvas id="cCum"></canvas></div>
-    <div class="card"><h2>Spend by project</h2><canvas id="cProj"></canvas></div>
-    <div class="card"><h2>Spend by model</h2><canvas id="cModel"></canvas></div>
-    <div class="card"><h2>Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
-    <div class="card full"><h2>Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
-    <div class="card full"><h2>5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
-    <div class="card full"><h2>Rate-limit burn over time (5h / 7d %)</h2><canvas id="cLimits"></canvas></div>
-    <div class="card full"><h2>Top 12 turns by cost</h2>
+    <div class="card full"><h2 title="Estimated cost per calendar day. turn_cost includes subagent spend; the estimate uses the PRICE rates in tokcore.py.">Spend per day</h2><canvas id="cDay"></canvas></div>
+    <div class="card"><h2 title="Running total of cost across the selected range.">Cumulative spend</h2><canvas id="cCum"></canvas></div>
+    <div class="card"><h2 title="Share of total cost by project directory.">Spend by project</h2><canvas id="cProj"></canvas></div>
+    <div class="card"><h2 title="Share of total cost by model. Only turns that recorded a model id (newer rows) are counted.">Spend by model</h2><canvas id="cModel"></canvas></div>
+    <div class="card"><h2 title="Each point is one turn: main-loop tokens added (x) vs its cost (y). Hover for the project.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
+    <div class="card full"><h2 title="Cache read vs cache write tokens per day — usually the bulk of traffic, and far cheaper than fresh input.">Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
+    <div class="card full"><h2 title="Total cost in the trailing 5 hours at each turn — a proxy for the 5h subscription usage limit.">5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
+    <div class="card full"><h2 title="The 5h and 7d rate-limit usage % as recorded at each turn (only turns that carried the fields).">Rate-limit burn over time (5h / 7d %)</h2><canvas id="cLimits"></canvas></div>
+    <div class="card full"><h2 title="The most expensive individual turns in the selected range.">Top 12 turns by cost</h2>
       <table id="tTop"><thead><tr><th>When</th><th>Project</th><th>Model</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Cache</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
@@ -271,7 +274,7 @@ function renderSessions(){
     const costCell = s.has_snapshot ? money(s.cost) : "—";
     const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
     const ioCell  = s.io_ratio ? s.io_ratio.toFixed(0)+":1" : '<span class="muted">—</span>';
-    const cls = s.status==="busy" ? "" : "idle";
+    const cls = (s.status==="busy"||s.status==="waiting") ? "" : "idle";
     return `<tr><td><span class="pill ${cls}"></span></td>`+
       `<td>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
       `<td class="n">${ctxCell}</td>`+
@@ -346,16 +349,16 @@ function render(){
   const maxTurn = costs.length?Math.max(...costs):0;
   const {peak} = peakWindow(rows);
   const kpi = [
-    ["exact", money(totCost), "Total spend"],
-    ["exact", money(totCost/days), "Per day"],
-    ["partial", toks(posTok), "Tokens added"],
-    ["border", toks(cacheTot), "Cache tokens"],
-    ["border", money(peak), "Peak 5h window"],
-    ["red", money(maxTurn), "Priciest turn"],
-    ["exact", rows.length+" / "+sessions, "Turns / sessions"],
+    ["exact", money(totCost), "Total spend", "Sum of turn_cost over the range (estimate, includes subagent spend)."],
+    ["exact", money(totCost/days), "Per day", "Total spend divided by the number of active days in range."],
+    ["partial", toks(posTok), "Tokens added", "Sum of positive main-loop token deltas; excludes subagents and cache."],
+    ["border", toks(cacheTot), "Cache tokens", "Total cache read + write tokens — usually the bulk of traffic."],
+    ["border", money(peak), "Peak 5h window", "Highest total cost within any rolling 5-hour window."],
+    ["red", money(maxTurn), "Priciest turn", "Cost of the single most expensive turn."],
+    ["exact", rows.length+" / "+sessions, "Turns / sessions", "Turn count / distinct sessions in range."],
   ];
-  $("#kpis").innerHTML = kpi.map(([c,v,l])=>
-    `<div class="kpi ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  $("#kpis").innerHTML = kpi.map(([c,v,l,t])=>
+    `<div class="kpi ${c}" title="${t}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
 
   const byDay = {};
   rows.forEach(r=>{ const d=fmtDay(r.epoch); (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].c+=r.turn_cost||0; byDay[d].t+=Math.max(0,r.turn_tokens||0); });
