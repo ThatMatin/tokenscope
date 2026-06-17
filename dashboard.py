@@ -179,6 +179,11 @@ HTML = r"""<!doctype html>
     box-shadow:0 0 8px var(--accent);animation:pulse 1.8s infinite}
   #liveBadge.stale{color:var(--partial)} #liveBadge.stale::before{background:var(--partial);box-shadow:none;animation:none}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .section{display:flex;align-items:center;gap:12px;margin:30px 0 14px;
+    font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--dim)}
+  .section:first-child{margin-top:6px}
+  .section::after{content:"";flex:1;height:1px;background:var(--line)}
+  .section .n{font-weight:400;color:var(--faint);text-transform:none;letter-spacing:0}
   .sess-note{color:var(--faint);font-size:11px;margin-top:10px}
   .legend{font-size:11px;color:var(--faint);margin-top:16px;line-height:1.8}
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
@@ -196,29 +201,47 @@ HTML = r"""<!doctype html>
   </div>
 </header>
 <div class="wrap">
-  <div class="card full" id="liveCard" style="margin-bottom:22px;display:none">
+  <div class="section">Live</div>
+  <div class="card full" id="liveCard" style="margin-bottom:16px;display:none">
     <h2 data-desc="Current 5h/7d subscription rate-limit usage, the daily budget synthesized from the 7-day window, and rtk proxy savings. Account-wide, from the latest turn.">Usage limits &amp; budget <span id="liveMode" style="text-transform:none;font-weight:400"></span></h2>
     <div id="liveBody" class="livegrid"></div>
   </div>
-  <div class="card full" id="sessCard" style="margin-bottom:22px;display:none">
+  <div class="card full" id="sessCard" style="display:none">
     <h2 data-desc="Every Claude Code session with a live process — joined from the session registry (names, liveness) and per-session snapshots (cost, context). Cache hit & in:out are aggregated from each transcript.">Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
     <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cache hit</th><th class="n">In:out</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
     <div class="sess-note" id="sessNote"></div>
   </div>
+
+  <div class="section">Overview <span class="n">· selected range</span></div>
   <div class="kpis" id="kpis"></div>
+
+  <div class="section">Spend</div>
   <div class="grid">
     <div class="card full"><h2 data-desc="Estimated cost per calendar day. turn_cost includes subagent spend; the estimate uses the PRICE rates in tokcore.py.">Spend per day</h2><canvas id="cDay"></canvas></div>
     <div class="card"><h2 data-desc="Running total of cost across the selected range.">Cumulative spend</h2><canvas id="cCum"></canvas></div>
+    <div class="card"><h2 data-desc="Each point is one turn: main-loop tokens added (x) vs its cost (y). Hover for the project.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
     <div class="card"><h2 data-desc="Share of total cost by project directory.">Spend by project</h2><canvas id="cProj"></canvas></div>
     <div class="card"><h2 data-desc="Share of total cost by model. Only turns that recorded a model id (newer rows) are counted.">Spend by model</h2><canvas id="cModel"></canvas></div>
-    <div class="card"><h2 data-desc="Each point is one turn: main-loop tokens added (x) vs its cost (y). Hover for the project.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas></div>
+  </div>
+
+  <div class="section">Tokens &amp; cache</div>
+  <div class="grid">
     <div class="card full"><h2 data-desc="Cache read vs cache write tokens per day — usually the bulk of traffic, and far cheaper than fresh input.">Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
+  </div>
+
+  <div class="section">Usage limits over time</div>
+  <div class="grid">
     <div class="card full"><h2 data-desc="Total cost in the trailing 5 hours at each turn — a proxy for the 5h subscription usage limit.">5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
     <div class="card full"><h2 data-desc="The 5h and 7d rate-limit usage % as recorded at each turn (only turns that carried the fields).">Rate-limit burn over time (5h / 7d %)</h2><canvas id="cLimits"></canvas></div>
+  </div>
+
+  <div class="section">Top turns</div>
+  <div class="grid">
     <div class="card full"><h2 data-desc="The most expensive individual turns in the selected range.">Top 12 turns by cost</h2>
       <table id="tTop"><thead><tr><th>When</th><th>Project</th><th>Model</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Cache</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
+
   <div class="legend">
     <span class="dot" style="background:var(--exact)"></span><b>Cost</b> — exact, includes subagent spend &nbsp;&nbsp;
     <span class="dot" style="background:var(--partial)"></span><b>Tokens</b> — main-loop only, excludes subagents (can go negative on compaction) &nbsp;&nbsp;
