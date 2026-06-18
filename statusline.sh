@@ -90,9 +90,15 @@ fi
 # Cache holds "EPOCH SAVED PCT"; refresh in the background when stale (>60s).
 RTK_CACHE="$HOME/.claude/rtk-cache.txt"
 RTK_TS=0; RTK_SAVED=""; RTK_PCT=""
-[ -f "$RTK_CACHE" ] && read -r RTK_TS RTK_SAVED RTK_PCT < "$RTK_CACHE"
-if command -v rtk >/dev/null 2>&1 && { [ -z "$RTK_TS" ] || [ $(( $(date +%s) - ${RTK_TS:-0} )) -gt 60 ]; }; then
-  ( OUT=$(rtk gain --format json 2>/dev/null | python3 -c "import sys,json;s=json.load(sys.stdin)['summary'];print(f\"{s['total_saved']/1e6:.2f}M {s['avg_savings_pct']:.0f}\")" 2>/dev/null); [ -n "$OUT" ] && echo "$(date +%s) $OUT" > "$RTK_CACHE" ) &>/dev/null &
+if [ -f "$RTK_CACHE" ]; then
+  read -r RTK_TS RTK_SAVED RTK_PCT < "$RTK_CACHE"
+  # First field must be a unix timestamp. A malformed/legacy cache (e.g. missing
+  # the timestamp) would otherwise feed a non-number into the arithmetic below
+  # and render garbage — treat it as stale and show nothing until the refresh.
+  case "$RTK_TS" in ""|*[!0-9]*) RTK_TS=0; RTK_SAVED=""; RTK_PCT="";; esac
+fi
+if command -v rtk >/dev/null 2>&1 && [ $(( $(date +%s) - RTK_TS )) -gt 60 ]; then
+  ( OUT=$(rtk gain --format json 2>/dev/null | python3 -c "import sys,json;s=json.load(sys.stdin)['summary'];print(f\"{s['total_saved']/1e6:.2f}M {s['avg_savings_pct']:.0f}\")" 2>/dev/null); [ -n "$OUT" ] && printf '%s %s\n' "$(date +%s)" "$OUT" > "$RTK_CACHE" ) &>/dev/null &
   disown $! 2>/dev/null
 fi
 
