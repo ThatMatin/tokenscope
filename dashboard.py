@@ -259,7 +259,8 @@ HTML = r"""<!doctype html>
   th{color:var(--faint);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
   tbody tr{transition:background .12s} tbody tr:hover{background:var(--card-2)}
   td.n{text-align:right;font-variant-numeric:tabular-nums}
-  .ctxbar{display:inline-block;height:6px;border-radius:3px;background:var(--accent);vertical-align:middle}
+  .ctxbar{display:block;height:6px;border-radius:3px;background:var(--accent)}
+  .ctxpct{display:inline-block;width:34px;text-align:right;font-variant-numeric:tabular-nums}
   .ctxtrack{display:inline-block;width:90px;height:6px;border-radius:3px;background:var(--line-2);vertical-align:middle;overflow:hidden}
   .pill{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle;
     box-shadow:0 0 6px color-mix(in srgb,var(--accent) 70%,transparent)}
@@ -565,7 +566,7 @@ function renderSessions(){
     const st=sessState(s), pillc = st==="active" ? "" : st;
     const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
     const ctxCell = s.has_snapshot
-      ? `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%`
+      ? `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> <span class="ctxpct">${s.ctx}%</span>`
       : `<span class="muted">no turn yet</span>`;
     const costCell = s.has_snapshot ? money(s.cost) : "—";
     const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
