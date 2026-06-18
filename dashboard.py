@@ -173,21 +173,32 @@ HTML = r"""<!doctype html>
   /* volume row */
   .nrow input[type=range]{flex:1;accent-color:var(--accent);cursor:pointer}
   .nrow .vval{width:38px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
-  /* per-entry expanders: each card / KPI opens its own summary */
+  /* per-entry: clickable title/card → select (highlight) + open detail overlay */
   h2.exp{cursor:pointer;user-select:none}
-  h2.exp::before{content:"▸";display:inline-block;margin-right:6px;color:var(--faint);
-    font-size:9px;transition:transform .15s}
-  h2.exp.open::before{transform:rotate(90deg)}
-  .entry-info{display:none;font-size:12.5px;color:var(--dim);line-height:1.55;
-    margin:-4px 0 14px;padding:11px 13px;background:var(--card-2);border:1px solid var(--line);
-    border-radius:10px;text-transform:none;letter-spacing:normal;font-weight:400}
-  .entry-info.open{display:block}
-  .entry-info b{color:var(--txt);font-weight:600}
-  .kpi.exp{cursor:pointer} .kpi.exp:hover{border-color:var(--line-2)}
-  .kpi .kpi-info{display:none;font-size:11.5px;color:var(--dim);line-height:1.5;
-    margin-top:10px;padding-top:10px;border-top:1px solid var(--line);text-transform:none;letter-spacing:normal}
-  .kpi.exp.open .kpi-info{display:block}
-  .kpi.exp .kpi-info b{color:var(--txt);font-weight:600}
+  h2.exp::after{content:"⤢";margin-left:7px;color:var(--faint);font-size:10px;opacity:.6}
+  .kpi.exp{cursor:pointer}
+  .kpi.exp:hover,.card:has(h2.exp):hover{border-color:var(--line-2)}
+  /* selected highlight */
+  .kpi.sel,.card.sel{border-color:var(--accent);
+    box-shadow:0 0 0 1px var(--accent), var(--shadow)}
+  /* detail overlay */
+  .ovl{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--bg) 62%,transparent);backdrop-filter:blur(3px);padding:24px}
+  .ovl.open{display:flex;animation:fade .14s ease-out}
+  .ovl-card{background:var(--card);border:1px solid var(--line-2);border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,.4);max-width:540px;width:100%;max-height:84vh;overflow:auto}
+  .ovl-head{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 0}
+  .ovl-head h3{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em;flex:1}
+  .ovl-head .tag{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:5px}
+  .ovl-close{background:none;border:none;color:var(--faint);font-size:20px;cursor:pointer;
+    padding:0 4px;line-height:1}
+  .ovl-close:hover{color:var(--accent)}
+  .ovl-val{padding:6px 22px 0;font-size:30px;font-weight:600;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;color:var(--accent)}
+  .ovl-body{padding:14px 22px 22px;font-size:13.5px;line-height:1.65;color:var(--dim)}
+  .ovl-body h4{margin:16px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+  .ovl-body h4:first-child{margin-top:4px}
+  .ovl-body b{color:var(--txt);font-weight:600}
   /* a section can host its own controls on the right of the rule */
   .section::after{order:1}
   .section .sctl{order:2;margin-left:10px;text-transform:none;letter-spacing:0;font-weight:400}
@@ -345,17 +356,12 @@ HTML = r"""<!doctype html>
       </div>
     </span></div>
   <div class="grid">
-    <div class="card full"><h2 class="exp">Spend per day</h2>
-      <div class="entry-info">Estimated cost per calendar day (bars; <b>turn_cost includes subagents</b>, priced via <code>PRICE</code> in tokcore.py). <b>Insight:</b> trend and spikes — which days cost most and whether spend is climbing.</div><canvas id="cDay"></canvas></div>
-    <div class="card"><h2 class="exp">Cumulative spend</h2>
-      <div class="entry-info">Running total of cost across the range. <b>Insight:</b> the slope is your burn rate; a steepening curve means accelerating cost.</div><canvas id="cCum"></canvas></div>
-    <div class="card"><h2 class="exp">Cost vs. tokens per turn</h2>
-      <div class="entry-info">Each point is a turn: x = main-loop tokens, y = cost, color = time (older → recent). <b>Insight:</b> cost-efficiency per token — outliers high-cost/low-token are subagent turns; color drift shows efficiency changing over time.</div><canvas id="cScatter"></canvas>
+    <div class="card full" data-entry="day"><h2 class="exp">Spend per day</h2><canvas id="cDay"></canvas></div>
+    <div class="card" data-entry="cum"><h2 class="exp">Cumulative spend</h2><canvas id="cCum"></canvas></div>
+    <div class="card" data-entry="scatter"><h2 class="exp">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas>
       <div class="heat-legend">older <i style="width:64px;background:linear-gradient(90deg,#6E8BFF,#3ECF8E)"></i> recent</div></div>
-    <div class="card"><h2 class="exp">Spend by project</h2>
-      <div class="entry-info">Share of total cost by project directory. <b>Insight:</b> where the money actually goes across your work.</div><canvas id="cProj"></canvas></div>
-    <div class="card"><h2 class="exp">Spend by model</h2>
-      <div class="entry-info">Share of total cost by model (turns that recorded a model id). <b>Insight:</b> your model mix — e.g. how much pricier Fable turns are vs. Opus.</div><canvas id="cModel"></canvas></div>
+    <div class="card" data-entry="proj"><h2 class="exp">Spend by project</h2><canvas id="cProj"></canvas></div>
+    <div class="card" data-entry="model"><h2 class="exp">Spend by model</h2><canvas id="cModel"></canvas></div>
   </div>
 
   <div class="section">Tokens &amp; cache</div>
@@ -395,6 +401,16 @@ HTML = r"""<!doctype html>
     <span class="dot" style="background:var(--partial)"></span><b>Tokens</b> — main-loop only, excludes subagents (can go negative on compaction) &nbsp;&nbsp;
     <span class="dot" style="background:var(--border)"></span><b>5h window</b> — exact values, heuristic turn-slicing
     <br>Generated __GEN__ · __N__ turns · data: ~/.claude/turn-log.jsonl
+  </div>
+</div>
+<div class="ovl" id="entryOvl">
+  <div class="ovl-card">
+    <div class="ovl-head">
+      <div style="flex:1"><h3 id="ovlTitle"></h3><div class="tag" id="ovlTag"></div></div>
+      <button class="ovl-close" id="ovlClose" title="Close (Esc)">✕</button>
+    </div>
+    <div class="ovl-val" id="ovlVal"></div>
+    <div class="ovl-body" id="ovlBody"></div>
   </div>
 </div>
 <script>
@@ -639,17 +655,17 @@ function render(){
   const maxTurn = costs.length?Math.max(...costs):0;
   const {peak} = peakWindow(rows);
   const kpi = [
-    ["exact", money(totCost), "Total spend", "Summed per-turn cost (<b>includes subagents</b>) over the range. <b>Insight:</b> your real outlay — compare ranges or projects."],
-    ["exact", money(totCost/days), "Per day", "Total ÷ active days. <b>Insight:</b> steady daily burn rate for budgeting and spotting heavy days."],
-    ["partial", toks(posTok), "Tokens added", "Main-loop input+output added (<b>excludes</b> subagents and cache). <b>Insight:</b> how much fresh context you generate vs. what's reused."],
-    ["border", toks(cacheTot), "Cache tokens", "Cache read+write volume. <b>Insight:</b> usually the bulk of traffic — high values mean cheap reuse, not new spend."],
-    ["border", money(peak), "Peak 5h window", "Max cost in any rolling 5-hour window. <b>Insight:</b> proxy for the 5h subscription limit — how close you run to the cap."],
-    ["red", money(maxTurn), "Priciest turn", "The single most expensive turn. <b>Insight:</b> surfaces subagent/workflow blow-ups worth investigating."],
-    ["partial", money(totCost/days*7), "Proj. weekly", "Per-day × 7. <b>Insight:</b> rough weekly trajectory to sanity-check against your plan's limit."],
-    ["exact", rows.length+" / "+sessions, "Turns / sessions", "Counts in range. <b>Insight:</b> the sample size the other numbers are averaged over."],
+    ["exact", money(totCost), "Total spend", "k_total"],
+    ["exact", money(totCost/days), "Per day", "k_perday"],
+    ["partial", toks(posTok), "Tokens added", "k_tokens"],
+    ["border", toks(cacheTot), "Cache tokens", "k_cache"],
+    ["border", money(peak), "Peak 5h window", "k_peak"],
+    ["red", money(maxTurn), "Priciest turn", "k_priciest"],
+    ["partial", money(totCost/days*7), "Proj. weekly", "k_weekly"],
+    ["exact", rows.length+" / "+sessions, "Turns / sessions", "k_turns"],
   ];
-  $("#kpis").innerHTML = kpi.map(([c,v,l,d])=>
-    `<div class="kpi ${c} exp"><div class="v">${v}</div><div class="l">${l}</div><div class="kpi-info">${d}</div></div>`).join("");
+  $("#kpis").innerHTML = kpi.map(([c,v,l,k])=>
+    `<div class="kpi ${c} exp" data-entry="${k}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
 
   const byDay = {};
   rows.forEach(r=>{ const d=fmtDay(r.epoch); (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].c+=r.turn_cost||0; byDay[d].t+=Math.max(0,r.turn_tokens||0); });
@@ -867,17 +883,79 @@ function saveChartOpts(){
 ["oPoints","oExact","oGrid"].forEach(id=>$("#"+id).addEventListener("change",saveChartOpts));
 paintChartOpts();
 
-// ---- per-entry expanders: each KPI / chart title opens its own summary ----
-// Delegated (KPIs are re-rendered every render()): chart h2.exp toggle the next
-// .entry-info; KPI cards toggle their own .open. Click-state is ephemeral.
+// ---- per-entry detail: click a KPI / chart title → select (highlight) + overlay ----
+const ENTRY = {
+  k_total:{tag:"Overview · metric", body:`
+    <h4>What it is</h4>Sum of every turn's cost in the selected range — <b>includes subagent / workflow spend</b> (turn_cost is the delta of the session's cumulative cost).
+    <h4>Insight</h4>Your real outlay. Compare across date ranges or projects to see where the money actually goes.
+    <h4>Caveat</h4>Claude Code's client-side <b>estimate</b>, not your invoice.`},
+  k_perday:{tag:"Overview · metric", body:`
+    <h4>What it is</h4>Total spend ÷ active days (days with at least one turn).
+    <h4>Insight</h4>Your steady daily burn rate — the baseline for budgeting and for spotting abnormally heavy days.`},
+  k_tokens:{tag:"Overview · metric", body:`
+    <h4>What it is</h4>Sum of positive per-turn main-loop token deltas (input+output). <b>Excludes</b> subagent tokens and cache reads/writes.
+    <h4>Insight</h4>How much <i>fresh</i> context you generate. Read it next to <b>Cache tokens</b> to gauge how much is reused vs. recomputed.`},
+  k_cache:{tag:"Overview · metric", body:`
+    <h4>What it is</h4>cache_read + cache_create tokens across the range.
+    <h4>Insight</h4>Usually the bulk of traffic and far cheaper than fresh input — a high cache-to-fresh ratio means efficient reuse.
+    <h4>Watch for</h4>A low cache-hit trend means context is being re-sent cold (expensive).`},
+  k_peak:{tag:"Overview · usage limit", body:`
+    <h4>What it is</h4>The maximum total cost found in any rolling 5-hour window.
+    <h4>Insight</h4>The closest you've run to the 5-hour subscription limit. If this approaches your plan's cap, you'll start hitting rate limits.`},
+  k_priciest:{tag:"Overview · outlier", body:`
+    <h4>What it is</h4>The single most expensive turn in range.
+    <h4>Insight</h4>Almost always a subagent / workflow fan-out — the cost the token count can't show. Find it in <b>Top turns by cost</b>.
+    <h4>Watch for</h4>One turn dominating the total.`},
+  k_weekly:{tag:"Overview · projection", body:`
+    <h4>What it is</h4>Per-day average × 7 — a naive weekly projection.
+    <h4>Insight</h4>A quick sanity-check of trajectory against the 7-day limit.
+    <h4>Caveat</h4>Not a forecast: it assumes flat usage and ignores trend.`},
+  k_turns:{tag:"Overview · context", body:`
+    <h4>What it is</h4>Count of turns / distinct sessions in the range.
+    <h4>Insight</h4>The sample size behind every average above — a small count means those per-turn stats are noisy.`},
+  day:{tag:"Spend · chart", body:`
+    <h4>How to read</h4>One bar per calendar day; height = estimated cost (turn_cost includes subagents, priced via <code>PRICE</code>).
+    <h4>Insight</h4>Trend and spikes — whether spend is climbing and which days dominate.
+    <h4>Tip</h4>Drag across the chart to zoom a span; double-click to reset.`},
+  cum:{tag:"Spend · chart", body:`
+    <h4>How to read</h4>Running total over the range; the <b>slope</b> is your burn rate.
+    <h4>Insight</h4>A steepening curve = accelerating spend; a flat stretch = idle time.`},
+  scatter:{tag:"Spend · chart", body:`
+    <h4>How to read</h4>Each point is a turn — x = main-loop tokens, y = cost, color = time (blue older → green recent).
+    <h4>Insight</h4>Cost-efficiency per token. Points high on cost but low on tokens are <b>subagent turns</b> — spend the token axis can't see.
+    <h4>Watch for</h4>Color drifting vertically over time = your cost-per-token changing.`},
+  proj:{tag:"Spend · chart", body:`
+    <h4>How to read</h4>Each slice is a project directory's share of total cost.
+    <h4>Insight</h4>Where spend concentrates across your work — useful for attributing cost.`},
+  model:{tag:"Spend · chart", body:`
+    <h4>How to read</h4>Each slice is a model's share of cost (turns that recorded a model id).
+    <h4>Insight</h4>Your model cost mix. Fable runs ~2× Opus per token, so a small Fable slice can still be large spend.`},
+};
+const ovl=$("#entryOvl");
+function closeOvl(){ ovl.classList.remove("open");
+  document.querySelectorAll(".kpi.sel,.card.sel").forEach(el=>el.classList.remove("sel")); }
+function openEntry(el){
+  const info=ENTRY[el.dataset.entry]; if(!info) return;
+  document.querySelectorAll(".kpi.sel,.card.sel").forEach(s=>s.classList.remove("sel"));
+  el.classList.add("sel");                                  // highlight the selected entry
+  const isKpi=el.classList.contains("kpi");
+  $("#ovlTitle").textContent = isKpi ? el.querySelector(".l").textContent : el.querySelector("h2").textContent;
+  $("#ovlTag").textContent = info.tag;
+  const v = isKpi ? el.querySelector(".v").textContent : "";
+  $("#ovlVal").textContent = v; $("#ovlVal").style.display = v ? "block" : "none";
+  $("#ovlBody").innerHTML = info.body;
+  ovl.classList.add("open");
+}
 document.addEventListener("click",e=>{
-  const h2=e.target.closest && e.target.closest("h2.exp");
-  if(h2){const inf=h2.nextElementSibling;
-    if(inf&&inf.classList.contains("entry-info")){h2.classList.toggle("open");inf.classList.toggle("open");}
-    return;}
-  const kpi=e.target.closest && e.target.closest(".kpi.exp");
-  if(kpi){kpi.classList.toggle("open");}
+  if(!e.target.closest) return;
+  const kpi=e.target.closest(".kpi.exp[data-entry]");
+  if(kpi){ openEntry(kpi); return; }
+  const h2=e.target.closest("h2.exp");
+  if(h2){ const card=h2.closest(".card[data-entry]"); if(card) openEntry(card); }
 });
+$("#ovlClose").addEventListener("click",closeOvl);
+ovl.addEventListener("click",e=>{ if(e.target===ovl) closeOvl(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeOvl(); });
 
 // ---- popovers (alerts + chart) — one open at a time, click-outside closes ----
 function wirePop(btn,panel){

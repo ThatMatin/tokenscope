@@ -149,8 +149,10 @@ in the header (it's global).
 
 - **Theme** (header) — Dark / Light / Yellowish, remembered in `localStorage`.
 
-Every **Overview** KPI and **Spend** chart is individually click-to-expand: clicking a
-card / chart title opens that entry's own summary — what it is and the insight it gives.
+Every **Overview** KPI and **Spend** chart is individually inspectable: click a KPI
+card or a chart title and it **highlights as selected** and opens a **detail overlay**
+with that entry's live value plus what-it-is / how-to-read / insight / caveats. Only
+one is selected at a time; Esc, the ✕, or a backdrop click closes it.
 
 Hook wiring (`~/.claude/settings.json`):
 
