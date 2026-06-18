@@ -619,9 +619,12 @@ function setChartNav(c){
   const z = c.options.plugins && c.options.plugins.zoom;
   if(z && z.zoom && z.pan){
     const zoom=NAVMODE==="zoom";
-    z.zoom.wheel.enabled=zoom;   // native pointer-anchored wheel zoom (rAF-throttled, smooth)
-    z.zoom.drag.enabled =zoom;   // zoom mode: drag draws a window, then zooms into it (plugin)
-    z.pan.enabled       =false;  // pan is our own rAF-coalesced drag (plugin mouse-pan needs Hammer.js)
+    // Category-axis charts (the day-bar histograms) zoom by whole bars, which feels
+    // jumpy on the wheel — disable wheel zoom there; drag-to-zoom still works.
+    const category = c.scales && c.scales.x && c.scales.x.type==="category";
+    z.zoom.wheel.enabled=zoom && !category;   // native pointer-anchored wheel zoom (smooth)
+    z.zoom.drag.enabled =zoom;                // zoom mode: drag draws a window, then zooms into it
+    z.pan.enabled       =false;               // pan is our own rAF-coalesced drag (plugin mouse-pan needs Hammer.js)
   }
   c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
 }
