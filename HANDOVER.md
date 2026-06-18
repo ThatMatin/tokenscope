@@ -88,10 +88,11 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    doughnut (proj/model) and the scatter must set `interaction:{mode:"nearest",
    intersect:true}` AND the same on their `tooltip`, or hovering highlights every
    slice/point. The crosshair plugin already skips doughnut/pie by type.
-8. **Pan-on-wheel is custom, not the zoom plugin.** chartjs-plugin-zoom only zooms
-   on wheel; in pan mode a `wheel` listener calls `chart.pan({x:-delta})`. Doughnuts
-   set `pan:{enabled:false}` in their per-chart config so the global `NAVMODE` toggle
-   never pans them.
+8. **Pan is fully custom, not the zoom plugin.** chartjs-plugin-zoom only zooms on
+   wheel, and its *mouse* pan gesture needs Hammer.js (not bundled) — so BOTH wheel-pan
+   and click-drag-pan are custom listeners calling `chart.pan({x:…})` (which still
+   updates the plugin's zoom state, so reset works). `z.pan.enabled` is left `false`.
+   Wheel-zoom speed is lowered via `z.zoom.wheel.speed = 0.04` (plugin default 0.1).
 9. **Switching zoom/pan mode at runtime must flip flags on each chart's OWN resolved
    `c.options.plugins.zoom`, not `Chart.defaults`.** Chart.js v4 resolves defaults
    into `c.options` at creation, so mutating defaults afterwards never reaches a live

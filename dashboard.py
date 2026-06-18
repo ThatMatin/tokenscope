@@ -591,6 +591,7 @@ if (ZOOM_OK){
   z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";  // rubber-band selection box
   z.zoom.drag.borderColor = "#5BB9D6";
   z.zoom.drag.borderWidth = 1;
+  z.zoom.wheel.speed = 0.04;   // gentler wheel zoom (plugin default 0.1 was too fast)
   z.zoom.mode = "x";
   z.pan.mode = "x";
   // Keep zoom & pan inside the data — panning can't wander into empty space and you
@@ -609,9 +610,9 @@ function setChartNav(c){
   const z = c.options.plugins && c.options.plugins.zoom;
   if(z && z.zoom && z.pan){
     const pan=NAVMODE==="pan";
-    z.zoom.wheel.enabled=!pan;   // plugin wheel = zoom only; pan-on-wheel is custom (below)
+    z.zoom.wheel.enabled=!pan;   // zoom mode: wheel zooms (plugin). pan mode: custom wheel-pan.
     z.zoom.drag.enabled =!pan;   // zoom mode: drag draws a window, then zooms into it
-    z.pan.enabled       =pan;    // pan mode: drag translates within the current zoom
+    z.pan.enabled       =false;  // we drive pan via chart.pan() (plugin mouse-pan needs Hammer.js)
   }
   c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
 }
@@ -639,6 +640,29 @@ document.addEventListener("wheel", e=>{
   const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   c.pan({x:-d}, undefined, "default");
 }, {passive:false});
+// Click-and-drag pan. The zoom plugin's mouse pan needs Hammer.js (not bundled),
+// so we drive it ourselves via chart.pan() — which also keeps the plugin's zoom
+// state consistent, so the reset button still clears it.
+let _panDrag=null;
+document.addEventListener("mousedown", e=>{
+  if(NAVMODE!=="pan" || !ZOOM_OK) return;
+  const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return;
+  const c=Chart.getChart(cv); if(!c || !c.pan) return;
+  if(c.config.type==="doughnut"||c.config.type==="pie") return;
+  _panDrag={c, x:e.clientX, y:e.clientY};
+  cv.style.cursor="grabbing"; e.preventDefault();
+});
+document.addEventListener("mousemove", e=>{
+  if(!_panDrag) return;
+  const dx=e.clientX-_panDrag.x;
+  _panDrag.x=e.clientX; _panDrag.y=e.clientY;
+  _panDrag.c.pan({x:dx}, undefined, "default");   // x-only, matches z.pan.mode
+});
+document.addEventListener("mouseup", ()=>{
+  if(!_panDrag) return;
+  _panDrag.c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
+  _panDrag=null;
+});
 document.addEventListener("dblclick", e=>{
   if(e.target && e.target.tagName==="CANVAS"){
     const c=Chart.getChart(e.target); if(c && c.resetZoom) c.resetZoom();
