@@ -314,10 +314,12 @@ HTML = r"""<!doctype html>
   td.n{text-align:right;font-variant-numeric:tabular-nums}
   .ctxbar{display:block;height:6px;border-radius:3px;background:var(--accent)}
   .ctxpct{display:inline-block;width:34px;text-align:right;font-variant-numeric:tabular-nums}
-  /* session order number, leading the name in the Active sessions table —
-     bigger than the body font and accent-colored so it's easy to scan */
-  .snum{color:var(--accent);font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;
+  /* session order number, leading the name in the Active sessions table — bigger than
+     the body font so it's easy to scan, tinted by session state (active/recent/idle):
+     idle stays bright neutral so most rows keep their prominence, green = active only. */
+  .snum{color:var(--txt);font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;
     margin-right:9px;display:inline-block;min-width:22px;text-align:right}
+  .snum.active{color:var(--accent)} .snum.recent{color:var(--partial)}
   .snum::before{content:"#";opacity:.6;font-size:13px}
   .ctxtrack{display:inline-block;width:90px;height:6px;border-radius:3px;background:var(--line-2);vertical-align:middle;overflow:hidden}
   .pill{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle;
@@ -796,7 +798,7 @@ function renderSessions(){
     const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
     const ioCell  = s.io_ratio ? s.io_ratio.toFixed(0)+":1" : '<span class="muted">—</span>';
     return `<tr><td><span class="pill ${pillc}" title="${st}"></span></td>`+
-      `<td><span class="snum">${i+1}</span>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
+      `<td><span class="snum ${st}">${i+1}</span>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
       `<td class="n">${ctxCell}</td>`+
       `<td class="n">${hitCell}</td><td class="n">${ioCell}</td>`+
       `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
