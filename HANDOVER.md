@@ -23,6 +23,11 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
 - status line: `today` daily-slice of the 7d limit; hardened rtk-cache parsing;
   optional personal overlay (`~/.claude/statusline-overlay.sh` — session-topic
   summary, kept out of the repo because it calls the `claude` CLI).
+- dashboard chart navigation: global **index-mode hover** (`intersect:false`) so you
+  read the value at the nearest x — all series at once — by hovering anywhere, not
+  on an invisible radius-0 point; a faint dashed **crosshair** guide at the hovered
+  x; and a **reset-zoom button** that appears only while a chart is zoomed/panned.
+  Doughnut + scatter charts opt back out to `nearest`/`intersect` per-chart.
 - dashboard: notification sounds (idle / needs-input, **never** subagents) with
   master/volume/per-event controls; dark/light/yellowish theme; chart inspection
   options (markers / exact lines / gridlines) + **drag-to-zoom**; per-entry **detail
@@ -56,6 +61,11 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    Session-table tracks also need the trailing `${ctx}%` in a fixed-width `.ctxpct`
    span — the right-aligned cell otherwise shifts each track's left edge by the
    digit-width of the number, so tracks don't line up. (Fixed 2026-06-18.)
+7. **Index-mode hover is global** (`Chart.defaults.interaction/tooltip`). It makes
+   line/bar charts navigable but is meaningless on charts without shared x bins —
+   doughnut (proj/model) and the scatter must set `interaction:{mode:"nearest",
+   intersect:true}` AND the same on their `tooltip`, or hovering highlights every
+   slice/point. The crosshair plugin already skips doughnut/pie by type.
 
 ## How to verify dashboard changes (USE THIS — don't eyeball)
 

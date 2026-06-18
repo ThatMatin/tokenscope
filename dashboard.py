@@ -235,6 +235,10 @@ HTML = r"""<!doctype html>
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
     box-shadow:var(--shadow);position:relative}
+  .zreset{position:absolute;top:12px;right:14px;display:none;z-index:5;cursor:pointer;
+    font-size:11px;padding:3px 9px;border-radius:7px;background:var(--card-2);
+    border:1px solid var(--line-2);color:var(--faint)}
+  .zreset:hover{border-color:var(--accent);color:var(--accent)}
   .card h2{font-size:12px;margin:0 0 14px;color:var(--dim);font-weight:500;
     text-transform:uppercase;letter-spacing:.07em}
   /* Section description: hover the header only (not the data inside). */
@@ -470,6 +474,47 @@ Chart.defaults.plugins.tooltip.bodyColor = "#9BA3AE";
 Chart.defaults.plugins.tooltip.padding = 10;
 Chart.defaults.plugins.tooltip.cornerRadius = 8;
 Chart.defaults.plugins.tooltip.displayColors = false;
+// Hover ANYWHERE over a chart and read the value at the nearest x — and every
+// series at that x at once — instead of Chart.js's default "hover exactly on a
+// (radius-0, invisible) point". This is the single biggest navigation win for the
+// time-series line charts. Doughnut/scatter charts opt back out per-chart below.
+Chart.defaults.interaction.mode = "index";
+Chart.defaults.interaction.intersect = false;
+Chart.defaults.interaction.axis = "x";
+Chart.defaults.plugins.tooltip.mode = "index";
+Chart.defaults.plugins.tooltip.intersect = false;
+
+// Crosshair: a faint dashed vertical guide at the hovered x, so a point lines up
+// with its axis label. Cartesian charts only (a vertical line on a doughnut is junk).
+Chart.register({
+  id:"crosshair",
+  afterDraw(chart){
+    if(chart.config.type==="doughnut"||chart.config.type==="pie") return;
+    const t=chart.tooltip;
+    if(!t||!t._active||!t._active.length) return;
+    const x=t._active[0].element.x, {top,bottom}=chart.chartArea, c=chart.ctx;
+    c.save(); c.beginPath(); c.moveTo(x,top); c.lineTo(x,bottom);
+    c.lineWidth=1; c.strokeStyle="rgba(91,185,214,.35)"; c.setLineDash([4,3]);
+    c.stroke(); c.restore();
+  }
+});
+
+// Reset-zoom affordance: a small button that appears on a chart ONLY while it's
+// zoomed/panned (progressive disclosure), so the reset isn't a hidden double-click.
+Chart.register({
+  id:"resetBtn",
+  afterDraw(chart){
+    if(!chart.isZoomedOrPanned) return;   // zoom plugin not loaded
+    const card=chart.canvas.closest(".card"); if(!card) return;
+    let b=card.querySelector(".zreset");
+    if(!b){
+      b=document.createElement("button"); b.className="zreset"; b.textContent="⟲ reset zoom";
+      b.addEventListener("click",()=>chart.resetZoom());
+      card.appendChild(b);
+    }
+    b.style.display = chart.isZoomedOrPanned() ? "block" : "none";
+  }
+});
 // Drag-to-zoom for fine inspection (chartjs-plugin-zoom, if it loaded).
 // Drag a range on the x-axis to zoom; wheel to zoom; double-click any chart to reset.
 // IMPORTANT: merge into the plugin's own defaults — overwriting the whole object
@@ -735,9 +780,10 @@ function render(){
   draw("proj", "#cProj", {type:"doughnut",
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
-    options:{cutout:"62%", plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+    options:{cutout:"62%", interaction:{mode:"nearest",intersect:true},
+      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
       legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
-      tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
+      tooltip:{mode:"nearest",intersect:true,callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // by model (only rows that recorded a model — older rows predate that field)
   const byM={}; rows.forEach(r=>{ if(r.model) byM[r.model]=(byM[r.model]||0)+(r.turn_cost||0); });
@@ -745,9 +791,10 @@ function render(){
   draw("model", "#cModel", {type:"doughnut",
     data:{labels:me.map(e=>modelShort(e[0])), datasets:[{data:me.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
-    options:{cutout:"62%", plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+    options:{cutout:"62%", interaction:{mode:"nearest",intersect:true},
+      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
       legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
-      tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
+      tooltip:{mode:"nearest",intersect:true,callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // cache tokens per day — read vs write, stacked (the bulk of traffic)
   const byDayC={};
@@ -822,7 +869,8 @@ function render(){
   const sdata = rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project, t:r.epoch}));
   draw("scatter", "#cScatter", {type:"scatter",
     data:{datasets:[{data:sdata, backgroundColor:sdata.map(d=>tcolor(d.t)), pointRadius:3, pointHoverRadius:5}]},
-    options:{plugins:{legend:{display:false},tooltip:{callbacks:{
+    options:{interaction:{mode:"nearest",intersect:true},
+      plugins:{legend:{display:false},tooltip:{mode:"nearest",intersect:true,callbacks:{
       title:i=>new Date(i[0].raw.t).toLocaleString(),
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
       scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
