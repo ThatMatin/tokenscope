@@ -7,6 +7,7 @@ update on an interval with no regeneration. Binds to localhost only — the page
 carries your usage/cost data, so it is never exposed on the network.
 """
 import json
+import os
 import sys
 import threading
 import webbrowser
@@ -14,6 +15,39 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import dashboard
 from tokcore import TURN_LOG
+
+ALARM_CFG = os.path.expanduser("~/.claude/tokenscope-alarm.json")
+ALARM_DEFAULT = {
+    "master": True,
+    "events": {
+        "idle": {"enabled": True, "sound": "Glass"},
+        "needs_input": {"enabled": True, "sound": "Ping"},
+    },
+}
+
+
+def read_alarm():
+    try:
+        with open(ALARM_CFG) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return ALARM_DEFAULT
+
+
+def write_alarm(cfg):
+    """Persist only known keys, coercing types — never trust the POST body blindly."""
+    safe = {"master": bool(cfg.get("master", True)), "events": {}}
+    for ev in ("idle", "needs_input"):
+        e = (cfg.get("events") or {}).get(ev) or {}
+        safe["events"][ev] = {
+            "enabled": bool(e.get("enabled", True)),
+            "sound": str(e.get("sound", "Glass"))[:32],
+        }
+    tmp = ALARM_CFG + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(safe, f, indent=2)
+    os.replace(tmp, ALARM_CFG)
+    return safe
 
 
 def make_handler(log_path, poll_ms):
@@ -39,6 +73,23 @@ def make_handler(log_path, poll_ms):
                            "live": dashboard.live_status()}
                 self._send(json.dumps(payload, separators=(",", ":")).encode("utf-8"),
                            "application/json")
+            elif path == "/alarm":
+                self._send(json.dumps(read_alarm()).encode("utf-8"),
+                           "application/json")
+            else:
+                self.send_error(404)
+
+        def do_POST(self):
+            path = self.path.split("?", 1)[0].rstrip("/") or "/"
+            if path == "/alarm":
+                try:
+                    n = int(self.headers.get("Content-Length", 0))
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    saved = write_alarm(body)
+                except (ValueError, OSError) as e:
+                    self.send_error(400, str(e))
+                    return
+                self._send(json.dumps(saved).encode("utf-8"), "application/json")
             else:
                 self.send_error(404)
 

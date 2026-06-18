@@ -115,6 +115,22 @@ HTML = r"""<!doctype html>
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.18);
     --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
+  /* Light — paper-white, darker accents for contrast on a light background. */
+  :root[data-theme="light"]{
+    --bg:#F7F8FA; --bg-soft:#FFFFFF; --card:#FFFFFF; --card-2:#EEF1F5;
+    --line:#E3E7EC; --line-2:#D2D8DF;
+    --txt:#1B2430; --dim:#566070; --faint:#8A94A2;
+    --accent:#1F9D6B; --exact:#1F9D6B; --border:#2E86A8; --partial:#B07D1E; --red:#C8385C;
+    --shadow:0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.07);
+  }
+  /* Yellowish — warm cream/sepia with an amber accent. */
+  :root[data-theme="yellowish"]{
+    --bg:#F4ECD8; --bg-soft:#FBF5E6; --card:#FBF6E9; --card-2:#F0E6CC;
+    --line:#E4D7B5; --line-2:#D8C79C;
+    --txt:#3A3320; --dim:#6B6038; --faint:#9A8C5C;
+    --accent:#B8860B; --exact:#6E8B3D; --border:#3E7C8C; --partial:#B8860B; --red:#C0533B;
+    --shadow:0 1px 2px rgba(120,90,20,.08), 0 8px 24px rgba(120,90,20,.09);
+  }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 var(--font);
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
@@ -130,6 +146,29 @@ HTML = r"""<!doctype html>
   button{background:var(--card-2);color:var(--txt);border:1px solid var(--line-2);
     border-radius:8px;padding:7px 12px;font:500 12px var(--font);cursor:pointer}
   button:hover{border-color:var(--accent);color:var(--accent)}
+  button.on{border-color:var(--accent);color:var(--accent)}
+  /* notifications popover */
+  .pop{position:relative;display:inline-block}
+  .pop-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:40;display:none;
+    width:300px;padding:14px;background:var(--card);border:1px solid var(--line-2);
+    border-radius:12px;box-shadow:var(--shadow)}
+  .pop-panel.open{display:block}
+  .pop-panel h3{margin:0 0 4px;font:600 12px var(--font);text-transform:uppercase;
+    letter-spacing:.06em;color:var(--dim)}
+  .pop-panel .hint{color:var(--faint);font-size:11px;margin:0 0 12px;line-height:1.5}
+  .nrow{display:flex;align-items:center;gap:8px;margin:9px 0}
+  .nrow .nlabel{flex:1;display:flex;align-items:center;gap:5px;font-size:13px;color:var(--txt)}
+  .nrow select{padding:4px 7px;font-size:12px}
+  .nrow input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+  /* small ⓘ with hover tooltip, reused from h2[data-desc] styling */
+  .info{cursor:help;color:var(--faint);font-size:10px;border:1px solid var(--line-2);
+    border-radius:50%;width:14px;height:14px;display:inline-flex;align-items:center;
+    justify-content:center;position:relative}
+  .info:hover::before{content:attr(data-desc);position:absolute;left:50%;transform:translateX(-50%);
+    bottom:calc(100% + 7px);z-index:50;width:230px;padding:9px 11px;background:var(--card-2);
+    border:1px solid var(--line-2);border-radius:9px;box-shadow:var(--shadow);color:var(--txt);
+    font:400 11.5px/1.5 var(--font);text-transform:none;letter-spacing:normal}
+  .pop-note{color:var(--faint);font-size:11px;line-height:1.5}
   /* activity heatmap */
   .heat{display:grid;grid-template-columns:34px repeat(24,1fr);gap:3px;align-items:center}
   .heat .hh{font-size:10px;color:var(--faint);text-align:center}
@@ -211,6 +250,39 @@ HTML = r"""<!doctype html>
     <span><label>From</label><input type="date" id="fFrom"></span>
     <span><label>To</label><input type="date" id="fTo"></span>
     <button id="exportBtn" title="Download the filtered turns as CSV">Export CSV</button>
+    <span><label>Theme</label><select id="themeSel">
+      <option value="dark">Dark</option><option value="light">Light</option>
+      <option value="yellowish">Yellowish</option></select></span>
+    <span class="pop">
+      <button id="alertsBtn" title="Notification sounds — rings that play when a session needs you. Click to configure.">🔔 Alerts</button>
+      <div class="pop-panel" id="alertsPanel">
+        <h3>Notification sounds</h3>
+        <p class="hint">Sounds your machine plays when a Claude Code session wants your attention. Configured here, played by the <code>Stop</code>/<code>Notification</code> hooks.</p>
+        <div id="alertsBody">
+          <div class="nrow">
+            <input type="checkbox" id="mMaster">
+            <span class="nlabel">All sounds
+              <span class="info" data-desc="Master switch. Off = total silence regardless of the per-event toggles below.">i</span>
+            </span>
+          </div>
+          <div class="nrow">
+            <input type="checkbox" id="eIdle">
+            <span class="nlabel">Session idle
+              <span class="info" data-desc="Plays when a session finishes responding and hands control back to you — your cue to return. (Stop hook.)">i</span>
+            </span>
+            <select id="sIdle"></select>
+          </div>
+          <div class="nrow">
+            <input type="checkbox" id="eNeed">
+            <span class="nlabel">Needs your input
+              <span class="info" data-desc="Plays when Claude is waiting on you mid-task — a permission prompt or a requested answer. (Notification hook.)">i</span>
+            </span>
+            <select id="sNeed"></select>
+          </div>
+        </div>
+        <p class="pop-note" id="alertsNote" style="display:none"></p>
+      </div>
+    </span>
   </div>
 </header>
 <div class="wrap">
@@ -651,7 +723,65 @@ if (LIVE){
   $("#sessNote").innerHTML = "Static snapshot — for a live view run <code>tokenscope serve</code> (or <code>tokenscope grid</code> in a terminal).";
 }
 
-function boot(){ renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
+// ---- theme (dark / light / yellowish) ----
+const THEMES=["dark","light","yellowish"];
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function applyChartTheme(){
+  // charts read these at construction; re-run + re-render() to retheme them.
+  Chart.defaults.color=cssVar('--faint');
+  Chart.defaults.borderColor=cssVar('--line');
+  Chart.defaults.plugins.tooltip.backgroundColor=cssVar('--card-2');
+  Chart.defaults.plugins.tooltip.borderColor=cssVar('--line-2');
+  Chart.defaults.plugins.tooltip.titleColor=cssVar('--txt');
+  Chart.defaults.plugins.tooltip.bodyColor=cssVar('--dim');
+  GRID.y.grid.color=cssVar('--line');
+}
+function setTheme(t){
+  if(!THEMES.includes(t))t="dark";
+  document.documentElement.dataset.theme=t;
+  try{localStorage.setItem("ts-theme",t);}catch(e){}
+  $("#themeSel").value=t; applyChartTheme();
+}
+(function initTheme(){
+  let t="dark"; try{t=localStorage.getItem("ts-theme")||"dark";}catch(e){}
+  if(!THEMES.includes(t))t="dark";
+  document.documentElement.dataset.theme=t; $("#themeSel").value=t;
+})();
+$("#themeSel").addEventListener("change",e=>{setTheme(e.target.value);render();});
+
+// ---- notification sounds ----
+const SOUNDS=["Glass","Ping","Hero","Tink","Submarine","Pop","Sosumi","Funk","Bottle","Blow","Frog","Morse","Purr","Basso","none"];
+const fillSounds=sel=>{sel.innerHTML=SOUNDS.map(s=>`<option value="${s}">${s==="none"?"(silent)":s}</option>`).join("");};
+fillSounds($("#sIdle")); fillSounds($("#sNeed"));
+let ALARM={master:true,events:{idle:{enabled:true,sound:"Glass"},needs_input:{enabled:true,sound:"Ping"}}};
+function paintAlarm(){
+  $("#mMaster").checked=!!ALARM.master;
+  $("#eIdle").checked=!!ALARM.events.idle.enabled; $("#sIdle").value=ALARM.events.idle.sound;
+  $("#eNeed").checked=!!ALARM.events.needs_input.enabled; $("#sNeed").value=ALARM.events.needs_input.sound;
+  $("#alertsBtn").classList.toggle("on",!!ALARM.master);
+}
+const readAlarmUI=()=>({master:$("#mMaster").checked,
+  events:{idle:{enabled:$("#eIdle").checked,sound:$("#sIdle").value},
+          needs_input:{enabled:$("#eNeed").checked,sound:$("#sNeed").value}}});
+async function saveAlarm(){
+  ALARM=readAlarmUI(); paintAlarm();
+  try{await fetch("alarm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(ALARM)});}catch(e){}
+}
+if(LIVE){
+  ["mMaster","eIdle","sIdle","eNeed","sNeed"].forEach(id=>$("#"+id).addEventListener("change",saveAlarm));
+  fetch("alarm",{cache:"no-store"}).then(r=>r.json()).then(c=>{ALARM=c;paintAlarm();}).catch(paintAlarm);
+}else{
+  // A static file:// page can't persist settings — show view-only.
+  document.querySelectorAll("#alertsBody input,#alertsBody select").forEach(el=>el.disabled=true);
+  const n=$("#alertsNote"); n.style.display="block";
+  n.innerHTML="Settings are read/written by <code>tokenscope serve</code>; this static export is view-only.";
+  paintAlarm();
+}
+$("#alertsBtn").addEventListener("click",e=>{e.stopPropagation();$("#alertsPanel").classList.toggle("open");});
+$("#alertsPanel").addEventListener("click",e=>e.stopPropagation());
+document.addEventListener("click",()=>$("#alertsPanel").classList.remove("open"));
+
+function boot(){ applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
 boot();
 
 if (LIVE){

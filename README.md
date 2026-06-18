@@ -117,6 +117,34 @@ place. Use `dashboard` when you want a shareable static snapshot instead.
 Optionally alias it: `alias tokenscope='python3 /path/to/tokenscope.py'`
 (and, if you like, `tokstats` / `tokstats-dash` → the `report` / `dashboard` subcommands).
 
+## Notifications & theme
+
+The served dashboard (`tokenscope serve`) has two controls in the header:
+
+- **🔔 Alerts** — sounds your machine plays when a session wants you. A master
+  on/off plus two events, each with its own sound (hover the ⓘ for what each is):
+  - **Session idle** — a session finished responding and handed control back (the
+    `Stop` hook).
+  - **Needs your input** — Claude is waiting mid-task on a permission prompt or a
+    requested answer (the `Notification` hook).
+
+  Changes are written to `~/.claude/tokenscope-alarm.json`; the `Stop`/`Notification`
+  hooks call `notify.sh`, which reads that file and plays the chosen
+  `/System/Library/Sounds/*.aiff` (terminal-bell fallback off macOS). Subagent
+  completions deliberately do **not** ring. The static `dashboard` export shows the
+  controls view-only (a file:// page can't persist settings).
+
+- **Theme** — Dark / Light / Yellowish, remembered in `localStorage`.
+
+Hook wiring (`~/.claude/settings.json`):
+
+```json
+"hooks": {
+  "Stop":         [{ "hooks": [{ "type": "command", "command": "~/.claude/tokenscope-notify.sh idle" }] }],
+  "Notification": [{ "hooks": [{ "type": "command", "command": "~/.claude/tokenscope-notify.sh needs_input" }] }]
+}
+```
+
 ## The turn log
 
 Each completed turn appends one JSON line to `~/.claude/turn-log.jsonl`:
