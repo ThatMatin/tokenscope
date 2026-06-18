@@ -173,20 +173,31 @@ HTML = r"""<!doctype html>
   /* volume row */
   .nrow input[type=range]{flex:1;accent-color:var(--accent);cursor:pointer}
   .nrow .vval{width:38px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
-  /* per-entry: clickable title/card → select (highlight) + open detail overlay */
+  /* per-entry: clickable title/card or ⤢ button → select (highlight) + overlay */
   h2.exp{cursor:pointer;user-select:none}
-  h2.exp::after{content:"⤢";margin-left:7px;color:var(--faint);font-size:10px;opacity:.6}
   .kpi.exp{cursor:pointer}
-  .kpi.exp:hover,.card:has(h2.exp):hover{border-color:var(--line-2)}
-  /* selected highlight */
-  .kpi.sel,.card.sel{border-color:var(--accent);
-    box-shadow:0 0 0 1px var(--accent), var(--shadow)}
+  .kpi.exp:hover{border-color:var(--line-2)}
+  /* top-right expand button on every chart card */
+  .expand-btn{position:absolute;top:12px;right:12px;z-index:5;background:var(--card-2);
+    color:var(--faint);border:1px solid var(--line-2);border-radius:8px;width:26px;height:26px;
+    font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    opacity:0;transition:opacity .12s,color .12s,border-color .12s}
+  .card:hover .expand-btn{opacity:1}
+  .expand-btn:hover{color:var(--accent);border-color:var(--accent)}
+  /* selected highlight — accent border + backlight glow */
+  .kpi.sel,.card.sel{border-color:var(--accent)!important;
+    box-shadow:0 0 0 1px var(--accent), 0 0 26px -4px var(--accent), var(--shadow);
+    transition:box-shadow .15s,border-color .15s}
+  .card.sel .expand-btn{opacity:1;color:var(--accent);border-color:var(--accent)}
   /* detail overlay */
   .ovl{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
     background:color-mix(in srgb,var(--bg) 62%,transparent);backdrop-filter:blur(3px);padding:24px}
   .ovl.open{display:flex;animation:fade .14s ease-out}
   .ovl-card{background:var(--card);border:1px solid var(--line-2);border-radius:16px;
-    box-shadow:0 20px 60px rgba(0,0,0,.4);max-width:540px;width:100%;max-height:84vh;overflow:auto}
+    box-shadow:0 20px 60px rgba(0,0,0,.4);max-width:820px;width:100%;max-height:88vh;overflow:auto}
+  .ovl-chart{height:46vh;max-height:420px;margin:14px 22px 0;position:relative;display:none}
+  .ovl-chart.show{display:block}
+  .ovl-chart canvas{max-height:none!important}
   .ovl-head{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 0}
   .ovl-head h3{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em;flex:1}
   .ovl-head .tag{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:5px}
@@ -221,7 +232,7 @@ HTML = r"""<!doctype html>
   .kpi.border .v{color:var(--border)} .kpi.red .v{color:var(--red)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
-    box-shadow:var(--shadow)}
+    box-shadow:var(--shadow);position:relative}
   .card h2{font-size:12px;margin:0 0 14px;color:var(--dim);font-weight:500;
     text-transform:uppercase;letter-spacing:.07em}
   /* Section description: hover the header only (not the data inside). */
@@ -250,8 +261,15 @@ HTML = r"""<!doctype html>
   .ctxtrack{display:inline-block;width:90px;height:6px;border-radius:3px;background:var(--line-2);vertical-align:middle;overflow:hidden}
   .pill{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle;
     box-shadow:0 0 6px color-mix(in srgb,var(--accent) 70%,transparent)}
+  .pill.recent{background:var(--partial);box-shadow:0 0 6px color-mix(in srgb,var(--partial) 70%,transparent)}
   .pill.idle{background:var(--faint);box-shadow:none}
   .muted{color:var(--faint)}
+  .sess-active{color:var(--dim);font-size:12px;margin:0 0 12px}
+  .sess-active .a{color:var(--accent);font-weight:600} .sess-active .r{color:var(--partial);font-weight:600}
+  .proj-chip{display:inline-block;background:var(--card-2);border:1px solid var(--line-2);border-radius:20px;
+    padding:2px 9px;margin:0 5px 5px 0;font-size:12px}
+  .proj-chip .d{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;background:var(--accent)}
+  .proj-chip.rec .d{background:var(--partial)}
   .livegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 26px}
   .lv{display:flex;align-items:center;gap:9px;font-size:13px}
   .lv .lvl{display:inline-block;width:42px;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
@@ -283,13 +301,14 @@ HTML = r"""<!doctype html>
     <span><label>From</label><input type="date" id="fFrom"></span>
     <span><label>To</label><input type="date" id="fTo"></span>
     <button id="exportBtn" title="Download the filtered turns as CSV">Export CSV</button>
+    <span id="pollWrap" style="display:none"><label title="How often the dashboard re-polls live data">Refresh</label><select id="pollSel"></select></span>
     <span><label>Theme</label><select id="themeSel">
       <option value="dark">Dark</option><option value="light">Light</option>
       <option value="yellowish">Yellowish</option></select></span>
   </div>
 </header>
 <div class="wrap">
-  <div class="section">Live <span class="sctl pop">
+  <div class="section">Live <span class="sctl" style="display:inline-flex;align-items:center;gap:5px"><label style="margin:0">recent ≤</label><input type="number" id="recentMin" min="1" max="60" style="width:48px" title="A just-idle session stays amber ('recent') for this many minutes after its last activity"> min</span> <span class="sctl pop">
       <button id="alertsBtn" title="Notification sounds — rings that play when a session needs you. Click to configure.">🔔 Alerts</button>
       <div class="pop-panel" id="alertsPanel">
         <h3>Notification sounds</h3>
@@ -332,6 +351,7 @@ HTML = r"""<!doctype html>
   </div>
   <div class="card full" id="sessCard" style="display:none">
     <h2 data-desc="Every Claude Code session with a live process — joined from the session registry (names, liveness) and per-session snapshots (cost, context). Cache hit & in:out are aggregated from each transcript.">Active sessions <span id="sessMode" style="text-transform:none;font-weight:400"></span></h2>
+    <div class="sess-active" id="sessActive"></div>
     <table id="tSess"><thead><tr><th></th><th>Session</th><th>Project</th><th>Model</th><th class="n">Context</th><th class="n">Cache hit</th><th class="n">In:out</th><th class="n">Cost</th><th class="n">Active</th></tr></thead><tbody></tbody></table>
     <div class="sess-note" id="sessNote"></div>
   </div>
@@ -410,6 +430,7 @@ HTML = r"""<!doctype html>
       <button class="ovl-close" id="ovlClose" title="Close (Esc)">✕</button>
     </div>
     <div class="ovl-val" id="ovlVal"></div>
+    <div class="ovl-chart" id="ovlChart"></div>
     <div class="ovl-body" id="ovlBody"></div>
   </div>
 </div>
@@ -527,11 +548,19 @@ function renderLive(){
   $("#liveBody").innerHTML = items.join("");
 }
 
+// "recently active" threshold (seconds): idle but seen within this window → amber.
+let RECENT_SECS=120; try{const r=localStorage.getItem("ts-recent"); if(r)RECENT_SECS=Math.max(60,+r*60);}catch(e){}
+const sessState=s=>(s.status==="busy"||s.status==="waiting") ? "active"
+                  : ((s.age||0) < RECENT_SECS ? "recent" : "idle");
+const STRANK={active:0,recent:1,idle:2};
 function renderSessions(){
   const card = $("#sessCard");
   if (!SESSIONS.length){ card.style.display = "none"; return; }
   card.style.display = "";
-  $("#tSess tbody").innerHTML = SESSIONS.map(s=>{
+  // active first, then recent, then idle; within a group, freshest first
+  const rows=[...SESSIONS].sort((a,b)=>STRANK[sessState(a)]-STRANK[sessState(b)] || (a.age||0)-(b.age||0));
+  $("#tSess tbody").innerHTML = rows.map(s=>{
+    const st=sessState(s), pillc = st==="active" ? "" : st;
     const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
     const ctxCell = s.has_snapshot
       ? `<span class="ctxtrack"><span class="ctxbar" style="width:${Math.min(100,s.ctx)}%;background:${ctxc}"></span></span> ${s.ctx}%`
@@ -539,13 +568,24 @@ function renderSessions(){
     const costCell = s.has_snapshot ? money(s.cost) : "—";
     const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
     const ioCell  = s.io_ratio ? s.io_ratio.toFixed(0)+":1" : '<span class="muted">—</span>';
-    const cls = (s.status==="busy"||s.status==="waiting") ? "" : "idle";
-    return `<tr><td><span class="pill ${cls}"></span></td>`+
+    return `<tr><td><span class="pill ${pillc}" title="${st}"></span></td>`+
       `<td>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
       `<td class="n">${ctxCell}</td>`+
       `<td class="n">${hitCell}</td><td class="n">${ioCell}</td>`+
       `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
   }).join("");
+  // parallel-projects summary: counts + one chip per project with live (active/recent) work
+  const nA=SESSIONS.filter(s=>sessState(s)==="active").length;
+  const nR=SESSIONS.filter(s=>sessState(s)==="recent").length;
+  const nI=SESSIONS.length-nA-nR;
+  const grp={};
+  SESSIONS.forEach(s=>{const st=sessState(s); if(st==="idle")return; const p=s.project||"?";
+    if(grp[p]===undefined||STRANK[st]<STRANK[grp[p]]) grp[p]=st;});
+  const chips=Object.entries(grp).sort((a,b)=>STRANK[a[1]]-STRANK[b[1]])
+    .map(([p,st])=>`<span class="proj-chip ${st==="recent"?"rec":""}"><span class="d"></span>${p}</span>`).join("");
+  $("#sessActive").innerHTML =
+    `<span class="a">${nA} active</span> · <span class="r">${nR} recent</span> · ${nI} idle`
+    + (chips ? ` &nbsp;·&nbsp; working in parallel: ${chips}` : "");
 }
 
 // Repopulate the project/model filters, preserving the current selection.
@@ -932,26 +972,63 @@ const ENTRY = {
     <h4>Insight</h4>Your model cost mix. Fable runs ~2× Opus per token, so a small Fable slice can still be large spend.`},
 };
 const ovl=$("#entryOvl");
-function closeOvl(){ ovl.classList.remove("open");
+const selectEl=el=>{ document.querySelectorAll(".kpi.sel,.card.sel").forEach(s=>s.classList.remove("sel")); el.classList.add("sel"); };
+// Move the live chart canvas into the overlay (so it's the real, interactive chart),
+// remembering where it came from to put it back on close.
+let movedCanvas=null,movedHome=null,movedNext=null,movedMAR=null;
+function moveChartBack(){
+  if(!movedCanvas) return;
+  const ch=Chart.getChart(movedCanvas);
+  if(movedHome) movedHome.insertBefore(movedCanvas, movedNext);
+  if(ch){ ch.options.maintainAspectRatio = movedMAR; ch.resize(); }
+  $("#ovlChart").classList.remove("show");
+  movedCanvas=movedHome=movedNext=null; movedMAR=null;
+}
+function moveChartIn(canvas){
+  moveChartBack();
+  movedCanvas=canvas; movedHome=canvas.parentNode; movedNext=canvas.nextSibling;
+  const oc=$("#ovlChart"); oc.classList.add("show"); oc.appendChild(canvas);
+  const ch=Chart.getChart(canvas);
+  if(ch){ movedMAR=ch.options.maintainAspectRatio; ch.options.maintainAspectRatio=false; ch.resize(); }
+}
+function closeOvl(){ ovl.classList.remove("open"); moveChartBack();
   document.querySelectorAll(".kpi.sel,.card.sel").forEach(el=>el.classList.remove("sel")); }
-function openEntry(el){
+function openKpi(el){
   const info=ENTRY[el.dataset.entry]; if(!info) return;
-  document.querySelectorAll(".kpi.sel,.card.sel").forEach(s=>s.classList.remove("sel"));
-  el.classList.add("sel");                                  // highlight the selected entry
-  const isKpi=el.classList.contains("kpi");
-  $("#ovlTitle").textContent = isKpi ? el.querySelector(".l").textContent : el.querySelector("h2").textContent;
-  $("#ovlTag").textContent = info.tag;
-  const v = isKpi ? el.querySelector(".v").textContent : "";
-  $("#ovlVal").textContent = v; $("#ovlVal").style.display = v ? "block" : "none";
-  $("#ovlBody").innerHTML = info.body;
+  selectEl(el); moveChartBack();
+  $("#ovlTitle").textContent=el.querySelector(".l").textContent;
+  $("#ovlTag").textContent=info.tag;
+  $("#ovlVal").textContent=el.querySelector(".v").textContent; $("#ovlVal").style.display="block";
+  $("#ovlBody").innerHTML=info.body;
   ovl.classList.add("open");
 }
+function openChartCard(card){
+  const canvas=card.querySelector("canvas"); if(!canvas) return;
+  selectEl(card);
+  const h2=card.querySelector("h2");
+  const info = (card.dataset.entry && ENTRY[card.dataset.entry]) ? ENTRY[card.dataset.entry]
+             : {tag:"Chart", body:(h2&&h2.dataset.desc)?`<h4>About</h4>${h2.dataset.desc}`:""};
+  $("#ovlTitle").textContent = h2 ? h2.textContent.trim() : "Chart";
+  $("#ovlTag").textContent = info.tag;
+  $("#ovlVal").style.display="none";
+  $("#ovlBody").innerHTML = info.body;
+  moveChartIn(canvas);            // enlarged, fully interactive (zoom/hover) in the overlay
+  ovl.classList.add("open");
+}
+// Add a top-right ⤢ expand button to every chart card.
+document.querySelectorAll(".card").forEach(card=>{
+  if(!card.querySelector("canvas")) return;
+  const b=document.createElement("button");
+  b.className="expand-btn"; b.textContent="⤢"; b.title="Expand — graph + details";
+  b.addEventListener("click",e=>{ e.stopPropagation(); openChartCard(card); });
+  card.appendChild(b);
+});
 document.addEventListener("click",e=>{
   if(!e.target.closest) return;
   const kpi=e.target.closest(".kpi.exp[data-entry]");
-  if(kpi){ openEntry(kpi); return; }
+  if(kpi){ openKpi(kpi); return; }
   const h2=e.target.closest("h2.exp");
-  if(h2){ const card=h2.closest(".card[data-entry]"); if(card) openEntry(card); }
+  if(h2){ const card=h2.closest(".card"); if(card&&card.querySelector("canvas")) openChartCard(card); }
 });
 $("#ovlClose").addEventListener("click",closeOvl);
 ovl.addEventListener("click",e=>{ if(e.target===ovl) closeOvl(); });
@@ -971,6 +1048,12 @@ document.addEventListener("click",()=>document.querySelectorAll(".pop-panel").fo
 function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
 boot();
 
+// "recently" threshold control (re-render sessions on change)
+const rmEl=$("#recentMin");
+if(rmEl){ rmEl.value=Math.round(RECENT_SECS/60);
+  rmEl.addEventListener("change",()=>{ RECENT_SECS=Math.max(1,+rmEl.value||2)*60;
+    try{localStorage.setItem("ts-recent",rmEl.value);}catch(e){} renderSessions(); }); }
+
 if (LIVE){
   const badge = $("#liveBadge");
   if (badge) badge.style.display = "inline-flex";
@@ -984,7 +1067,22 @@ if (LIVE){
       if (badge) badge.classList.remove("stale");
     }catch(e){ if (badge) badge.classList.add("stale"); }
   }
-  setInterval(refresh, POLL_MS);
+  // adjustable refresh interval ("retry distance"): select drives a resettable timer
+  let pollTimer=null;
+  const POLLS=[["2000","2s"],["5000","5s"],["10000","10s"],["30000","30s"],["60000","1m"],["0","Off"]];
+  const psel=$("#pollSel"), pwrap=$("#pollWrap");
+  function applyPoll(ms){ if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+    if(ms>0) pollTimer=setInterval(refresh,ms);
+    try{localStorage.setItem("ts-poll",ms);}catch(e){} }
+  if(psel && pwrap){
+    pwrap.style.display="";
+    psel.innerHTML=POLLS.map(([v,t])=>`<option value="${v}">${t}</option>`).join("");
+    let saved=POLL_MS; try{const s=localStorage.getItem("ts-poll"); if(s!==null)saved=+s;}catch(e){}
+    if(!POLLS.some(([v])=>+v===saved)) saved=POLL_MS;
+    psel.value=String(saved);
+    psel.addEventListener("change",()=>applyPoll(+psel.value));
+    applyPoll(saved);
+  } else { pollTimer=setInterval(refresh,POLL_MS); }
 }
 </script>
 </body>

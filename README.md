@@ -149,10 +149,21 @@ in the header (it's global).
 
 - **Theme** (header) — Dark / Light / Yellowish, remembered in `localStorage`.
 
-Every **Overview** KPI and **Spend** chart is individually inspectable: click a KPI
-card or a chart title and it **highlights as selected** and opens a **detail overlay**
-with that entry's live value plus what-it-is / how-to-read / insight / caveats. Only
-one is selected at a time; Esc, the ✕, or a backdrop click closes it.
+- **Refresh** (header, live only) — how often the dashboard re-polls live data
+  (2s/5s/10s/30s/1m/Off), remembered in `localStorage`.
+
+**Inspecting a component.** Every chart card has a top-right **⤢ expand** button; the
+KPI/Spend titles are also clickable. Selecting one **highlights it** (accent backlight)
+and opens a **detail overlay**: for a chart, the *actual graph* is moved in enlarged and
+fully interactive (hover, drag-to-zoom), alongside its what-it-is / how-to-read / insight
+text; for a KPI, its live value plus the same notes. One selection at a time; Esc / ✕ /
+backdrop closes it and returns the chart to its card.
+
+**Active sessions** are pill-coded in three states and sorted accordingly: **active**
+(green — working now), **recent** (amber — idle but seen within the last *N* minutes,
+adjustable via *recent ≤ __ min* on the Live section), and **idle** (grey). A summary
+line counts each and lists, as chips, the projects with live (active/recent) work — so
+parallel work is visible at a glance.
 
 Hook wiring (`~/.claude/settings.json`):
 
