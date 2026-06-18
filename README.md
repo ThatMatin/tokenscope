@@ -122,7 +122,8 @@ Optionally alias it: `alias tokenscope='python3 /path/to/tokenscope.py'`
 The served dashboard (`tokenscope serve`) has two controls in the header:
 
 - **🔔 Alerts** — sounds your machine plays when a session wants you. A master
-  on/off plus two events, each with its own sound (hover the ⓘ for what each is):
+  on/off, a **volume** slider, plus two events each with its own sound (hover the
+  ⓘ for what each is):
   - **Session idle** — a session finished responding and handed control back (the
     `Stop` hook).
   - **Needs your input** — Claude is waiting mid-task on a permission prompt or a
@@ -130,11 +131,18 @@ The served dashboard (`tokenscope serve`) has two controls in the header:
 
   Changes are written to `~/.claude/tokenscope-alarm.json`; the `Stop`/`Notification`
   hooks call `notify.sh`, which reads that file and plays the chosen
-  `/System/Library/Sounds/*.aiff` (terminal-bell fallback off macOS). Subagent
-  completions deliberately do **not** ring. The static `dashboard` export shows the
-  controls view-only (a file:// page can't persist settings).
+  `/System/Library/Sounds/*.aiff` at the set volume (`afplay -v`; terminal-bell
+  fallback off macOS). Subagent completions deliberately do **not** ring. The static
+  `dashboard` export shows the controls view-only (a file:// page can't persist).
+
+- **⚙ Chart** — inspection options for precise reading rather than at-a-glance
+  shape: **data points** (marker per sample), **exact lines** (disable smoothing),
+  **vertical gridlines**. Remembered in `localStorage`.
 
 - **Theme** — Dark / Light / Yellowish, remembered in `localStorage`.
+
+The **Overview** and **Spend** section headers are click-to-expand: each opens a
+guide explaining every metric/chart in it and the insight it gives.
 
 Hook wiring (`~/.claude/settings.json`):
 

@@ -19,6 +19,7 @@ from tokcore import TURN_LOG
 ALARM_CFG = os.path.expanduser("~/.claude/tokenscope-alarm.json")
 ALARM_DEFAULT = {
     "master": True,
+    "volume": 0.8,
     "events": {
         "idle": {"enabled": True, "sound": "Glass"},
         "needs_input": {"enabled": True, "sound": "Ping"},
@@ -36,7 +37,11 @@ def read_alarm():
 
 def write_alarm(cfg):
     """Persist only known keys, coercing types — never trust the POST body blindly."""
-    safe = {"master": bool(cfg.get("master", True)), "events": {}}
+    try:
+        vol = max(0.0, min(1.0, float(cfg.get("volume", 0.8))))
+    except (TypeError, ValueError):
+        vol = 0.8
+    safe = {"master": bool(cfg.get("master", True)), "volume": round(vol, 3), "events": {}}
     for ev in ("idle", "needs_input"):
         e = (cfg.get("events") or {}).get(ev) or {}
         safe["events"][ev] = {

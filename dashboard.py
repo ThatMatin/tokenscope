@@ -169,6 +169,21 @@ HTML = r"""<!doctype html>
     border:1px solid var(--line-2);border-radius:9px;box-shadow:var(--shadow);color:var(--txt);
     font:400 11.5px/1.5 var(--font);text-transform:none;letter-spacing:normal}
   .pop-note{color:var(--faint);font-size:11px;line-height:1.5}
+  /* volume row */
+  .nrow input[type=range]{flex:1;accent-color:var(--accent);cursor:pointer}
+  .nrow .vval{width:38px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+  /* expandable section + explainer box */
+  .section.expandable{cursor:pointer;user-select:none}
+  .section.expandable .chev{display:inline-block;transition:transform .15s;color:var(--faint);font-size:10px}
+  .section.expandable.open .chev{transform:rotate(90deg)}
+  .xinfo{display:none;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:16px 20px;margin:-4px 0 18px;box-shadow:var(--shadow)}
+  .xinfo.open{display:block}
+  .xinfo dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 16px;align-items:baseline}
+  .xinfo dt{font-weight:600;font-size:12.5px;color:var(--txt);white-space:nowrap}
+  .xinfo dd{margin:0;font-size:12.5px;color:var(--dim);line-height:1.5}
+  .xinfo dd b{color:var(--txt);font-weight:500}
+  @media(max-width:680px){.xinfo dl{grid-template-columns:1fr;gap:2px 0}.xinfo dt{margin-top:8px}}
   /* activity heatmap */
   .heat{display:grid;grid-template-columns:34px repeat(24,1fr);gap:3px;align-items:center}
   .heat .hh{font-size:10px;color:var(--faint);text-align:center}
@@ -266,6 +281,13 @@ HTML = r"""<!doctype html>
             </span>
           </div>
           <div class="nrow">
+            <span class="nlabel" style="flex:0 0 auto">Volume
+              <span class="info" data-desc="Playback level for every notification sound (passed to afplay -v). 0 = inaudible.">i</span>
+            </span>
+            <input type="range" id="vVol" min="0" max="100" step="5">
+            <span class="vval" id="vVolN">80%</span>
+          </div>
+          <div class="nrow">
             <input type="checkbox" id="eIdle">
             <span class="nlabel">Session idle
               <span class="info" data-desc="Plays when a session finishes responding and hands control back to you — your cue to return. (Stop hook.)">i</span>
@@ -283,6 +305,31 @@ HTML = r"""<!doctype html>
         <p class="pop-note" id="alertsNote" style="display:none"></p>
       </div>
     </span>
+    <span class="pop">
+      <button id="chartBtn" title="Chart inspection options — markers, exact lines, gridlines.">⚙ Chart</button>
+      <div class="pop-panel" id="chartPanel">
+        <h3>Chart options</h3>
+        <p class="hint">Tune the plots for precise reading rather than at-a-glance shape.</p>
+        <div class="nrow">
+          <input type="checkbox" id="oPoints">
+          <span class="nlabel">Data points
+            <span class="info" data-desc="Draw a marker at every data point so you can read individual turns/days exactly, not just the trend line.">i</span>
+          </span>
+        </div>
+        <div class="nrow">
+          <input type="checkbox" id="oExact">
+          <span class="nlabel">Exact lines
+            <span class="info" data-desc="Turn off curve smoothing so lines connect points directly — no interpolation that can misread between samples.">i</span>
+          </span>
+        </div>
+        <div class="nrow">
+          <input type="checkbox" id="oGrid">
+          <span class="nlabel">Vertical gridlines
+            <span class="info" data-desc="Add x-axis gridlines to line up points with their dates/values more accurately.">i</span>
+          </span>
+        </div>
+      </div>
+    </span>
   </div>
 </header>
 <div class="wrap">
@@ -297,10 +344,27 @@ HTML = r"""<!doctype html>
     <div class="sess-note" id="sessNote"></div>
   </div>
 
-  <div class="section">Overview <span class="n">· selected range</span></div>
+  <div class="section expandable" data-x="ovInfo"><span class="chev">▸</span>&nbsp;Overview <span class="n">· selected range · click for a guide</span></div>
+  <div class="xinfo" id="ovInfo"><dl>
+    <dt>Total spend</dt><dd>Summed per-turn cost (<b>includes subagents</b>) over the range. <b>Insight:</b> your real outlay — compare ranges or projects side by side.</dd>
+    <dt>Per day</dt><dd>Total ÷ active days. <b>Insight:</b> steady daily burn rate for budgeting and spotting heavy days.</dd>
+    <dt>Tokens added</dt><dd>Main-loop input+output added (<b>excludes</b> subagents and cache). <b>Insight:</b> how much fresh context you generate vs. what's reused from cache.</dd>
+    <dt>Cache tokens</dt><dd>Cache read+write volume. <b>Insight:</b> usually the bulk of traffic — high values mean lots of cheap reuse, not new spend.</dd>
+    <dt>Peak 5h window</dt><dd>Max cost in any rolling 5-hour window. <b>Insight:</b> proxy for the 5h subscription limit — how close you run to the cap.</dd>
+    <dt>Priciest turn</dt><dd>The single most expensive turn. <b>Insight:</b> surfaces subagent/workflow blow-ups worth investigating.</dd>
+    <dt>Proj. weekly</dt><dd>Per-day × 7. <b>Insight:</b> rough weekly trajectory to sanity-check against your plan's limit.</dd>
+    <dt>Turns / sessions</dt><dd>Counts in range. <b>Insight:</b> the sample size the other numbers are averaged over.</dd>
+  </dl></div>
   <div class="kpis" id="kpis"></div>
 
-  <div class="section">Spend</div>
+  <div class="section expandable" data-x="spInfo"><span class="chev">▸</span>&nbsp;Spend <span class="n">· click for a guide</span></div>
+  <div class="xinfo" id="spInfo"><dl>
+    <dt>Spend per day</dt><dd>Daily cost as bars. <b>Insight:</b> trend and spikes — which days cost the most and whether spend is climbing.</dd>
+    <dt>Cumulative spend</dt><dd>Running total across the range. <b>Insight:</b> the slope is your burn rate; a steepening curve means accelerating cost.</dd>
+    <dt>Cost vs. tokens per turn</dt><dd>Each point a turn; x=tokens, y=cost, color=time. <b>Insight:</b> cost-efficiency per token — outliers high-cost/low-token are subagent turns; color drift shows efficiency changing over time.</dd>
+    <dt>Spend by project</dt><dd>Cost share per directory. <b>Insight:</b> where the money actually goes across your work.</dd>
+    <dt>Spend by model</dt><dd>Cost share per model. <b>Insight:</b> your model mix — e.g. how much pricier Fable turns are vs. Opus.</dd>
+  </dl></div>
   <div class="grid">
     <div class="card full"><h2 data-desc="Estimated cost per calendar day. turn_cost includes subagent spend; the estimate uses the PRICE rates in tokcore.py.">Spend per day</h2><canvas id="cDay"></canvas></div>
     <div class="card"><h2 data-desc="Running total of cost across the selected range.">Cumulative spend</h2><canvas id="cCum"></canvas></div>
@@ -753,22 +817,24 @@ $("#themeSel").addEventListener("change",e=>{setTheme(e.target.value);render();}
 const SOUNDS=["Glass","Ping","Hero","Tink","Submarine","Pop","Sosumi","Funk","Bottle","Blow","Frog","Morse","Purr","Basso","none"];
 const fillSounds=sel=>{sel.innerHTML=SOUNDS.map(s=>`<option value="${s}">${s==="none"?"(silent)":s}</option>`).join("");};
 fillSounds($("#sIdle")); fillSounds($("#sNeed"));
-let ALARM={master:true,events:{idle:{enabled:true,sound:"Glass"},needs_input:{enabled:true,sound:"Ping"}}};
+let ALARM={master:true,volume:0.8,events:{idle:{enabled:true,sound:"Glass"},needs_input:{enabled:true,sound:"Ping"}}};
 function paintAlarm(){
   $("#mMaster").checked=!!ALARM.master;
+  const vp=Math.round((ALARM.volume??0.8)*100); $("#vVol").value=vp; $("#vVolN").textContent=vp+"%";
   $("#eIdle").checked=!!ALARM.events.idle.enabled; $("#sIdle").value=ALARM.events.idle.sound;
   $("#eNeed").checked=!!ALARM.events.needs_input.enabled; $("#sNeed").value=ALARM.events.needs_input.sound;
   $("#alertsBtn").classList.toggle("on",!!ALARM.master);
 }
-const readAlarmUI=()=>({master:$("#mMaster").checked,
+const readAlarmUI=()=>({master:$("#mMaster").checked, volume:(+$("#vVol").value||0)/100,
   events:{idle:{enabled:$("#eIdle").checked,sound:$("#sIdle").value},
           needs_input:{enabled:$("#eNeed").checked,sound:$("#sNeed").value}}});
 async function saveAlarm(){
   ALARM=readAlarmUI(); paintAlarm();
   try{await fetch("alarm",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(ALARM)});}catch(e){}
 }
+$("#vVol").addEventListener("input",()=>$("#vVolN").textContent=$("#vVol").value+"%"); // live label
 if(LIVE){
-  ["mMaster","eIdle","sIdle","eNeed","sNeed"].forEach(id=>$("#"+id).addEventListener("change",saveAlarm));
+  ["mMaster","eIdle","sIdle","eNeed","sNeed","vVol"].forEach(id=>$("#"+id).addEventListener("change",saveAlarm));
   fetch("alarm",{cache:"no-store"}).then(r=>r.json()).then(c=>{ALARM=c;paintAlarm();}).catch(paintAlarm);
 }else{
   // A static file:// page can't persist settings — show view-only.
@@ -777,11 +843,47 @@ if(LIVE){
   n.innerHTML="Settings are read/written by <code>tokenscope serve</code>; this static export is view-only.";
   paintAlarm();
 }
-$("#alertsBtn").addEventListener("click",e=>{e.stopPropagation();$("#alertsPanel").classList.toggle("open");});
-$("#alertsPanel").addEventListener("click",e=>e.stopPropagation());
-document.addEventListener("click",()=>$("#alertsPanel").classList.remove("open"));
 
-function boot(){ applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
+// ---- chart inspection options (global, re-render on change) ----
+let CHARTOPTS={points:false,exact:false,gridx:false};
+try{Object.assign(CHARTOPTS,JSON.parse(localStorage.getItem("ts-chartopts")||"{}"));}catch(e){}
+function applyChartOpts(){
+  Chart.defaults.elements.point.radius=CHARTOPTS.points?3:0;
+  Chart.defaults.elements.line.tension=CHARTOPTS.exact?0:0.32;
+  GRID.x.grid.display=!!CHARTOPTS.gridx;
+}
+const paintChartOpts=()=>{$("#oPoints").checked=CHARTOPTS.points;$("#oExact").checked=CHARTOPTS.exact;$("#oGrid").checked=CHARTOPTS.gridx;};
+function saveChartOpts(){
+  CHARTOPTS={points:$("#oPoints").checked,exact:$("#oExact").checked,gridx:$("#oGrid").checked};
+  try{localStorage.setItem("ts-chartopts",JSON.stringify(CHARTOPTS));}catch(e){}
+  applyChartOpts(); render();
+}
+["oPoints","oExact","oGrid"].forEach(id=>$("#"+id).addEventListener("change",saveChartOpts));
+paintChartOpts();
+
+// ---- expandable section guides ----
+document.querySelectorAll(".section.expandable").forEach(sec=>{
+  const box=document.getElementById(sec.dataset.x);
+  let open=false; try{open=localStorage.getItem("ts-exp-"+sec.dataset.x)==="1";}catch(e){}
+  if(open){sec.classList.add("open");box.classList.add("open");}
+  sec.addEventListener("click",()=>{
+    const now=box.classList.toggle("open"); sec.classList.toggle("open",now);
+    try{localStorage.setItem("ts-exp-"+sec.dataset.x,now?"1":"0");}catch(e){}
+  });
+});
+
+// ---- popovers (alerts + chart) — one open at a time, click-outside closes ----
+function wirePop(btn,panel){
+  $(btn).addEventListener("click",e=>{e.stopPropagation();
+    const el=$(panel), was=el.classList.contains("open");
+    document.querySelectorAll(".pop-panel").forEach(p=>p.classList.remove("open"));
+    if(!was)el.classList.add("open");});
+  $(panel).addEventListener("click",e=>e.stopPropagation());
+}
+wirePop("#alertsBtn","#alertsPanel"); wirePop("#chartBtn","#chartPanel");
+document.addEventListener("click",()=>document.querySelectorAll(".pop-panel").forEach(p=>p.classList.remove("open")));
+
+function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
 boot();
 
 if (LIVE){

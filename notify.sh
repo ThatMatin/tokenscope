@@ -16,11 +16,13 @@ cfg="$HOME/.claude/tokenscope-alarm.json"
 [ "$(jq -r --arg e "$event" '.events[$e].enabled // false' "$cfg" 2>/dev/null)" = "true" ] || exit 0
 sound=$(jq -r --arg e "$event" '.events[$e].sound // "Glass"' "$cfg" 2>/dev/null)
 { [ -z "$sound" ] || [ "$sound" = "none" ]; } && exit 0
+vol=$(jq -r '.volume // 1' "$cfg" 2>/dev/null)   # 0.0–1.0 gain for afplay -v
+case "$vol" in ""|*[!0-9.]*) vol=1;; esac
 
 f="/System/Library/Sounds/${sound}.aiff"
 if command -v afplay >/dev/null 2>&1 && [ -f "$f" ]; then
-  ( afplay "$f" >/dev/null 2>&1 & )   # background so the hook returns instantly
+  ( afplay -v "$vol" "$f" >/dev/null 2>&1 & )   # background so the hook returns instantly
 else
-  printf '\a' > /dev/tty 2>/dev/null  # terminal-bell fallback (non-macOS)
+  printf '\a' > /dev/tty 2>/dev/null            # terminal-bell fallback (non-macOS)
 fi
 exit 0
