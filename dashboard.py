@@ -314,6 +314,9 @@ HTML = r"""<!doctype html>
   td.n{text-align:right;font-variant-numeric:tabular-nums}
   .ctxbar{display:block;height:6px;border-radius:3px;background:var(--accent)}
   .ctxpct{display:inline-block;width:34px;text-align:right;font-variant-numeric:tabular-nums}
+  /* session order number, appended to the name in the Active sessions table */
+  .snum{color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .snum::before{content:"#"}
   .ctxtrack{display:inline-block;width:90px;height:6px;border-radius:3px;background:var(--line-2);vertical-align:middle;overflow:hidden}
   .pill{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle;
     box-shadow:0 0 6px color-mix(in srgb,var(--accent) 70%,transparent)}
@@ -599,6 +602,7 @@ if (ZOOM_OK){
   z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";  // rubber-band selection box
   z.zoom.drag.borderColor = "#5BB9D6";
   z.zoom.drag.borderWidth = 1;
+  z.zoom.drag.maintainAspectRatio = true;   // zoom keeps each chart's aspect ratio (no distortion)
   z.zoom.wheel.speed = 0.05;   // native wheel zoom: pointer-anchored & rAF-throttled by the plugin
   z.zoom.mode = "x";
   z.pan.mode = "x";
@@ -780,7 +784,7 @@ function renderSessions(){
   const rows=[...SESSIONS]
     .filter(s=> !q || ((s.name||"")+" "+(s.project||"")).toLowerCase().includes(q))
     .sort((a,b)=>STRANK[sessState(a)]-STRANK[sessState(b)] || (a.age||0)-(b.age||0));
-  $("#tSess tbody").innerHTML = rows.map(s=>{
+  $("#tSess tbody").innerHTML = rows.map((s,i)=>{
     const st=sessState(s), pillc = st==="active" ? "" : st;
     const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
     const ctxCell = s.has_snapshot
@@ -790,7 +794,7 @@ function renderSessions(){
     const hitCell = s.cache_hit!=null ? (s.cache_hit*100).toFixed(0)+"%" : '<span class="muted">—</span>';
     const ioCell  = s.io_ratio ? s.io_ratio.toFixed(0)+":1" : '<span class="muted">—</span>';
     return `<tr><td><span class="pill ${pillc}" title="${st}"></span></td>`+
-      `<td>${s.name}</td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
+      `<td>${s.name} <span class="snum">${i+1}</span></td><td>${s.project}</td><td>${s.has_snapshot?s.model:"?"}</td>`+
       `<td class="n">${ctxCell}</td>`+
       `<td class="n">${hitCell}</td><td class="n">${ioCell}</td>`+
       `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
