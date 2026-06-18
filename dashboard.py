@@ -432,11 +432,18 @@ Chart.defaults.plugins.tooltip.cornerRadius = 8;
 Chart.defaults.plugins.tooltip.displayColors = false;
 // Drag-to-zoom for fine inspection (chartjs-plugin-zoom, if it loaded).
 // Drag a range on the x-axis to zoom; wheel to zoom; double-click any chart to reset.
-if (window.Chart && Chart.registry && Chart.registry.plugins.get("zoom")){
-  Chart.defaults.plugins.zoom = {
-    zoom:{ wheel:{enabled:true}, drag:{enabled:true, backgroundColor:"rgba(91,185,214,.18)",
-           borderColor:"#5BB9D6", borderWidth:1}, mode:"x" }
-  };
+// IMPORTANT: merge into the plugin's own defaults — overwriting the whole object
+// drops its `pan`/`limits` keys, which the plugin then reads → a TypeError that
+// aborts chart rendering. Mutate sub-keys only.
+if (window.Chart && Chart.defaults.plugins && Chart.defaults.plugins.zoom
+    && Chart.defaults.plugins.zoom.zoom){
+  const z = Chart.defaults.plugins.zoom.zoom;
+  z.wheel.enabled = true;
+  z.drag.enabled = true;
+  z.drag.backgroundColor = "rgba(91,185,214,.18)";
+  z.drag.borderColor = "#5BB9D6";
+  z.drag.borderWidth = 1;
+  z.mode = "x";
 }
 document.addEventListener("dblclick", e=>{
   if(e.target && e.target.tagName==="CANVAS"){
@@ -667,7 +674,8 @@ function render(){
   draw("proj", "#cProj", {type:"doughnut",
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
-    options:{cutout:"62%", plugins:{legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
+    options:{cutout:"62%", plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+      legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // by model (only rows that recorded a model — older rows predate that field)
@@ -676,7 +684,8 @@ function render(){
   draw("model", "#cModel", {type:"doughnut",
     data:{labels:me.map(e=>modelShort(e[0])), datasets:[{data:me.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
-    options:{cutout:"62%", plugins:{legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
+    options:{cutout:"62%", plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+      legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
   // cache tokens per day — read vs write, stacked (the bulk of traffic)
