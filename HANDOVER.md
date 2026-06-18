@@ -88,11 +88,20 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    doughnut (proj/model) and the scatter must set `interaction:{mode:"nearest",
    intersect:true}` AND the same on their `tooltip`, or hovering highlights every
    slice/point. The crosshair plugin already skips doughnut/pie by type.
-8. **Pan is fully custom, not the zoom plugin.** chartjs-plugin-zoom only zooms on
-   wheel, and its *mouse* pan gesture needs Hammer.js (not bundled) — so BOTH wheel-pan
-   and click-drag-pan are custom listeners calling `chart.pan({x:…})` (which still
-   updates the plugin's zoom state, so reset works). `z.pan.enabled` is left `false`.
-   Wheel-zoom speed is lowered via `z.zoom.wheel.speed = 0.04` (plugin default 0.1).
+8. **Wheel zoom AND all panning are custom, not the zoom plugin.** Both plugin flags
+   (`z.zoom.wheel.enabled`, `z.pan.enabled`) are kept `false`; only plugin drag-zoom
+   (the rubber-band-to-window in zoom mode) is still the plugin.
+   - **Wheel zoom**: a custom `wheel` listener calls `chart.zoom({x:factor,focalPoint})`
+     with the step CAPPED at 5%/event (`WHEEL_ZOOM_CAP`). The plugin's `wheel.speed`
+     was a dead end — trackpad momentum fires many events, so per-event speed barely
+     changed the felt rate; the cap is what actually slows it.
+   - **Pan** (wheel & click-drag): custom listeners call `chart.pan({x:…})` (plugin
+     mouse-pan needs Hammer.js, not bundled). Using the imperative `pan()` keeps the
+     plugin's zoom state so reset still works.
+   - **Rubber-band**: when a drag-pan is clamped at the data edge (incl. at full zoom,
+     where nothing pans) the unconsumed drag becomes a damped `translateX` on the
+     canvas that springs back on mouseup. It's pure CSS transform — never touches the
+     scales — so panning can't change the zoom level.
 9. **Switching zoom/pan mode at runtime must flip flags on each chart's OWN resolved
    `c.options.plugins.zoom`, not `Chart.defaults`.** Chart.js v4 resolves defaults
    into `c.options` at creation, so mutating defaults afterwards never reaches a live

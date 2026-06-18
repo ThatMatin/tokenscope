@@ -591,8 +591,7 @@ if (ZOOM_OK){
   z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";  // rubber-band selection box
   z.zoom.drag.borderColor = "#5BB9D6";
   z.zoom.drag.borderWidth = 1;
-  z.zoom.wheel.speed = 0.04;   // gentler wheel zoom (plugin default 0.1 was too fast)
-  z.zoom.mode = "x";
+  z.zoom.mode = "x";   // (wheel zoom itself is handled by a custom listener, not the plugin)
   z.pan.mode = "x";
   // Keep zoom & pan inside the data — panning can't wander into empty space and you
   // can't zoom out past the original extent (so pan stays at the current zoom level).
@@ -610,8 +609,8 @@ function setChartNav(c){
   const z = c.options.plugins && c.options.plugins.zoom;
   if(z && z.zoom && z.pan){
     const pan=NAVMODE==="pan";
-    z.zoom.wheel.enabled=!pan;   // zoom mode: wheel zooms (plugin). pan mode: custom wheel-pan.
-    z.zoom.drag.enabled =!pan;   // zoom mode: drag draws a window, then zooms into it
+    z.zoom.wheel.enabled=false;  // wheel is custom (below) so we control the zoom rate
+    z.zoom.drag.enabled =!pan;   // zoom mode: drag draws a window, then zooms into it (plugin)
     z.pan.enabled       =false;  // we drive pan via chart.pan() (plugin mouse-pan needs Hammer.js)
   }
   c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
@@ -629,38 +628,68 @@ function applyNavMode(){
   try{ localStorage.setItem("ts-navmode",NAVMODE); }catch(e){}
 }
 function setNavMode(m){ NAVMODE=m; applyNavMode(); }
-// The zoom plugin only zooms on wheel; in pan mode we translate wheel deltas into
-// a horizontal pan ourselves so "scroll" means the same gesture the toggle promises.
+// Wheel is fully custom (plugin wheel disabled in setChartNav) so we control the rate:
+//   zoom mode → gentle, cursor-centered zoom, capped per event so trackpad momentum
+//               can't zoom wildly fast; pan mode → horizontal pan.
+const WHEEL_ZOOM_STEP = 0.0016;   // per deltaY unit, before clamping
+const WHEEL_ZOOM_CAP  = 0.05;     // max fraction zoomed per wheel event
+function chartFromEvent(e){
+  const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return null;
+  const c=Chart.getChart(cv); if(!c) return null;
+  if(c.config.type==="doughnut"||c.config.type==="pie") return null;
+  return c;
+}
 document.addEventListener("wheel", e=>{
-  if(NAVMODE!=="pan" || !ZOOM_OK) return;
-  const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return;
-  const c=Chart.getChart(cv); if(!c || !c.pan) return;
-  if(c.config.type==="doughnut"||c.config.type==="pie") return;
+  if(!ZOOM_OK) return;
+  const c=chartFromEvent(e); if(!c) return;
   e.preventDefault();
-  const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-  c.pan({x:-d}, undefined, "default");
+  if(NAVMODE==="pan"){
+    if(!c.pan) return;
+    const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    rubberPan(c, -d);
+    return;
+  }
+  if(!c.zoom) return;
+  const mag = Math.max(-WHEEL_ZOOM_CAP, Math.min(WHEEL_ZOOM_CAP, e.deltaY*WHEEL_ZOOM_STEP));
+  const factor = 1 - mag;   // deltaY<0 (scroll up) → factor>1 → zoom in
+  const rect = c.canvas.getBoundingClientRect();
+  c.zoom({x:factor, focalPoint:{x:e.clientX-rect.left, y:e.clientY-rect.top}}, "none");
 }, {passive:false});
-// Click-and-drag pan. The zoom plugin's mouse pan needs Hammer.js (not bundled),
-// so we drive it ourselves via chart.pan() — which also keeps the plugin's zoom
-// state consistent, so the reset button still clears it.
+
+// Click-and-drag pan + rubber-band. The plugin's mouse pan needs Hammer.js (not
+// bundled), so we drive it via chart.pan() (keeps the plugin's zoom state, so reset
+// works). When the pan is clamped at the data edge — including at full zoom, where
+// there's nothing to pan — the unconsumed drag becomes a damped CSS translate that
+// springs back on release: a subtle rubber-band. It never touches the scales, so
+// panning can't change the zoom level.
 let _panDrag=null;
+function rubberPan(c, dx){
+  const before=c.scales.x.min;
+  c.pan({x:dx}, undefined, "default");   // x-only, matches z.pan.mode
+  if(_panDrag && _panDrag.c===c){
+    if(c.scales.x.min===before) _panDrag.over += dx;   // clamped → accumulate overscroll
+    else _panDrag.over = 0;                            // actually moved → no rubber-band
+    const o=_panDrag.over, rub=Math.sign(o)*Math.min(28, Math.abs(o)*0.25);
+    c.canvas.style.transform = "translateX("+rub+"px)";
+  }
+}
 document.addEventListener("mousedown", e=>{
   if(NAVMODE!=="pan" || !ZOOM_OK) return;
-  const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return;
-  const c=Chart.getChart(cv); if(!c || !c.pan) return;
-  if(c.config.type==="doughnut"||c.config.type==="pie") return;
-  _panDrag={c, x:e.clientX, y:e.clientY};
-  cv.style.cursor="grabbing"; e.preventDefault();
+  const c=chartFromEvent(e); if(!c || !c.pan) return;
+  _panDrag={c, x:e.clientX, over:0};
+  c.canvas.style.transition="none"; c.canvas.style.cursor="grabbing"; e.preventDefault();
 });
 document.addEventListener("mousemove", e=>{
   if(!_panDrag) return;
-  const dx=e.clientX-_panDrag.x;
-  _panDrag.x=e.clientX; _panDrag.y=e.clientY;
-  _panDrag.c.pan({x:dx}, undefined, "default");   // x-only, matches z.pan.mode
+  const dx=e.clientX-_panDrag.x; _panDrag.x=e.clientX;
+  rubberPan(_panDrag.c, dx);
 });
 document.addEventListener("mouseup", ()=>{
   if(!_panDrag) return;
-  _panDrag.c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
+  const cv=_panDrag.c.canvas;
+  cv.style.transition="transform .28s cubic-bezier(.2,.8,.2,1)";   // spring back
+  cv.style.transform="translateX(0)";
+  cv.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
   _panDrag=null;
 });
 document.addEventListener("dblclick", e=>{
