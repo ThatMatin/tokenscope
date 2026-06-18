@@ -101,6 +101,8 @@ Opus 4.8 · myproject ████░░░░░░ 39% · 78400t · Δ840 tok 
 - per-turn output **sparkline**, live output rate
 - `-c 2` for a two-column layout
 
+![tokenscope HTML dashboard — live sessions, KPIs and spend charts](assets/dashboard-sessions.png)
+
 The **HTML dashboard** charts every field the turn log records: spend per day / cumulative / by
 project / **by model**, cost-vs-tokens, the 5-hour rolling window, **cache tokens per day**
 (read vs. write — usually the bulk of traffic), and **rate-limit burn over time** (5h / 7d %).
