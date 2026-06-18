@@ -1,28 +1,62 @@
 # tokenscope
 
-A small observability toolkit for [Claude Code](https://code.claude.com): a compact,
-visualized **status line** plus a unified `tokenscope` CLI for token usage, cost,
-context-window fill, and your subscription rate limits — all from data Claude Code already
-emits. No API keys, no telemetry backend, no network calls.
+**A local-first token, cost & rate-limit observatory for [Claude Code](https://code.claude.com) power users.**
+A compact visualized **status line** plus a unified `tokenscope` CLI — token usage, cost,
+context-window fill, and your subscription rate limits, all from data Claude Code already
+emits. No API keys, no telemetry, no network backend.
 
-> Maintainers: see [RUNBOOK.md](RUNBOOK.md) for architecture, data contracts,
-> troubleshooting, and how to extend.
+![tokenscope dashboard and status line](assets/tokenscope.png)
 
-One entrypoint over a shared core (`tokcore.py`):
+## Is this for you?
 
-| command | what it shows |
-|---------|---------------|
-| `tokenscope live` | full-screen live monitor of the **current** session (default — bare `tokenscope`) |
-| `tokenscope grid` | live view of **all open sessions** at once, joined to Claude Code's session registry |
-| `tokenscope report` | historical CLI analysis of the turn log (was `tokstats`) |
-| `tokenscope dashboard` | self-contained interactive **HTML** dashboard, static `file://` (was `tokstats-dash`) |
-| `tokenscope serve` | the same dashboard **live** — a localhost server the page polls so charts + sessions auto-refresh |
+**✅ Built for you if you —**
+- run **multiple Claude Code sessions at once** and lose track of them (`grid` is the only local tool for this)
+- keep hitting **rate limits or your budget mid-task** with no warning (live 5h/7d burn bars)
+- **won't ship your usage to a hosted analytics service** — everything here stays on your machine
+
+**⛔ Not for you if you —**
+- are on the **API / Console** (no subscription `rate_limits` field → the limit bars stay empty)
+- want your **exact invoice** — all costs here are Claude Code's *client-side estimates*, not authoritative billing
+
+Rate-limit data appears only on **Pro / Max / Team** plans.
+
+## 60-second quickstart
+
+Requires `jq` and `python3` (3.8+, standard library only).
+
+```bash
+# 1. install the status line
+cp statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh
+
+# 2. wire it in ~/.claude/settings.json (see settings.example.json):
+#    "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" }
+
+# 3. watch your current session in a second pane
+python3 tokenscope.py live
+```
+
+Optionally alias it so the commands below are copy-pasteable:
+
+```bash
+alias tokenscope='python3 /path/to/tokenscope.py'
+# (and if you like: tokstats / tokstats-dash → the report / dashboard subcommands)
+```
+
+## I want to… → run this
+
+One entrypoint (`tokenscope.py`) over a shared core (`tokcore.py`):
+
+| I want to… | command | notes |
+|------------|---------|-------|
+| watch my **current** session live | `tokenscope live` | default — bare `tokenscope` also works; `-c 2` for two columns |
+| see **all my open sessions** at once | `tokenscope grid` | joined to Claude Code's session registry |
+| find **where this week's spend went** | `tokenscope report --days 7` | historical CLI analysis (was `tokstats`) |
+| **share or inspect** charts offline | `tokenscope dashboard` | self-contained static HTML `file://` (was `tokstats-dash`) |
+| keep a **live auto-refreshing** dashboard | `tokenscope serve` | localhost server at `http://127.0.0.1:8765`; the page polls `/data` |
 
 Bare `tokenscope` (with the old `-i/-c/-f/--project` flags) still launches `live`, so existing usage keeps working.
 
-> Status: works, but pre-1.0 — paths and the turn-log schema may still change.
-
-![tokenscope dashboard and status line](assets/tokenscope.png)
+> Status: works, but **pre-1.0** — paths and the turn-log schema may still change.
 
 ## What you get
 
@@ -67,58 +101,11 @@ Opus 4.8 · myproject ████░░░░░░ 39% · 78400t · Δ840 tok 
 - per-turn output **sparkline**, live output rate
 - `-c 2` for a two-column layout
 
-## How it works
-
-Claude Code passes a rich JSON payload to the status-line command on stdin (model, cost,
-context window, and — on subscription plans — `rate_limits`). The dashboard, however, gets
-no stdin. So the status line writes that payload to `~/.claude/usage-snapshot.json`, and the
-dashboard reads it. That snapshot is the **bridge** that gets the `/usage` data and the
-authoritative cost into the dashboard. The dashboard also parses the session transcript
-(`~/.claude/projects/**/*.jsonl`) directly for the detailed token breakdown and sparkline.
-
-```
-Claude Code ──stdin──▶ statusline.sh ──▶ usage-snapshot.json ──────┐
-                              ├──▶ turn-log.jsonl                   ├─▶ live / report / dashboard
-                              └──▶ tokscope-sessions/{id}.json ──┐  │
-~/.claude/projects/**/*.jsonl ────────────────────────────────  ┘  ┘
-~/.claude/sessions/{pid}.json  (Claude Code's own registry) ──────▶ grid (joined by sessionId)
-```
-
-The **grid** is built by joining Claude Code's own per-process session registry
-(`~/.claude/sessions/{pid}.json` — authoritative for which sessions are open, their names, and
-liveness) with the per-session payload snapshots the status line writes to
-`~/.claude/tokscope-sessions/{sessionId}.json` (authoritative for cost/context). A session with
-no snapshot yet still appears (registry-only) until its first turn fills in the numbers.
-
-## Install
-
-Requires `jq` and `python3` (3.8+; standard library only).
-
-```bash
-# status line
-cp statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh
-# then add to ~/.claude/settings.json (see settings.example.json):
-#   "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" }
-
-# live monitor — run in a second terminal pane
-python3 tokenscope.py            # current session, stacked
-python3 tokenscope.py -c 2       # two columns
-python3 tokenscope.py grid       # all open sessions
-python3 tokenscope.py report --days 7
-python3 tokenscope.py dashboard  # writes + opens the static HTML dashboard
-python3 tokenscope.py serve      # live dashboard at http://127.0.0.1:8765 (auto-refresh)
-```
-
-The HTML dashboard charts every field the turn log records: spend per day / cumulative / by
+The **HTML dashboard** charts every field the turn log records: spend per day / cumulative / by
 project / **by model**, cost-vs-tokens, the 5-hour rolling window, **cache tokens per day**
 (read vs. write — usually the bulk of traffic), and **rate-limit burn over time** (5h / 7d %).
-
-`serve` binds to localhost only (the page carries your usage/cost data) and exposes a `/data`
-JSON endpoint the page polls every `-i` seconds; charts and the Active-sessions panel update in
-place. Use `dashboard` when you want a shareable static snapshot instead.
-
-Optionally alias it: `alias tokenscope='python3 /path/to/tokenscope.py'`
-(and, if you like, `tokstats` / `tokstats-dash` → the `report` / `dashboard` subcommands).
+`serve` binds to localhost only and exposes a `/data` JSON endpoint the page polls every `-i`
+seconds; use `dashboard` when you want a shareable static snapshot instead.
 
 ## Notifications & theme
 
@@ -174,31 +161,38 @@ Hook wiring (`~/.claude/settings.json`):
 }
 ```
 
-## The turn log
-
-Each completed turn appends one JSON line to `~/.claude/turn-log.jsonl`:
-
-| field | meaning |
-|-------|---------|
-| `ts` | UTC timestamp |
-| `session`, `project`, `turn` | identity + turn index |
-| `turn_tokens`, `turn_cost` | per-turn deltas (context input+output; cost includes subagents) |
-| `cum_tokens`, `cum_cost`, `context_pct` | cumulative snapshot |
-| `model`, `ctx_window` | model id and window size (200K vs 1M) |
-| `cache_read`, `cache_create` | cache token volume — the bulk of traffic, easy to miss |
-| `five_h_pct`, `seven_d_pct` | rate-limit burn at that turn |
-
-This is an append-only ledger you can post-process for trends (cost by model, cache-hit over
-time, limit burn per session).
-
 ## Caveats
 
 - `cost.total_cost_usd` is Claude Code's **client-side estimate**, not your invoice.
 - The tools' own `est` cost uses the rates in `PRICE` at the top of `tokcore.py` —
   defaults are standard Claude Opus rates; edit them for your plan. The cost-mix proportions
   use those same rates.
-- `rate_limits` appear only after the first API turn and only on Pro/Max/Team plans.
+- `rate_limits` appear only after the first API turn and only on **Pro/Max/Team** plans.
 - `rtk` integration is optional and degrades silently when `rtk` isn't on `PATH`.
+- Notification sounds use macOS `afplay`; off macOS they fall back to the terminal bell.
+
+## How it works
+
+Claude Code passes a rich JSON payload to the status-line command on stdin (model, cost,
+context window, and — on subscription plans — `rate_limits`). The dashboard gets no stdin,
+so the status line writes that payload to `~/.claude/usage-snapshot.json` as the **bridge**,
+and appends a line per turn to `~/.claude/turn-log.jsonl`.
+
+```
+Claude Code ──stdin──▶ statusline.sh ──▶ usage-snapshot.json ──────┐
+                              ├──▶ turn-log.jsonl                   ├─▶ live / report / dashboard
+                              └──▶ tokscope-sessions/{id}.json ──┐  │
+~/.claude/projects/**/*.jsonl ────────────────────────────────  ┘  ┘
+~/.claude/sessions/{pid}.json  (Claude Code's own registry) ──────▶ grid (joined by sessionId)
+```
+
+The **turn log** (`~/.claude/turn-log.jsonl`) is an append-only ledger — one JSON line per
+completed turn (timestamp, session/project/turn, per-turn and cumulative tokens/cost, model,
+context %, cache read/create, 5h/7d burn) that you can post-process for trends.
+
+> **Maintainers / contributors:** [RUNBOOK.md](RUNBOOK.md) has the full architecture, the
+> turn-log field-by-field schema, data contracts, the grid registry-join details,
+> troubleshooting, and how to extend.
 
 ## License
 

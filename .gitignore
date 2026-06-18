@@ -19,3 +19,6 @@ venv/
 # OS / editor
 .DS_Store
 *.swp
+
+# Local-only session handover note (not for publishing)
+HANDOVER.md
