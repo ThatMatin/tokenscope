@@ -184,10 +184,12 @@ HTML = r"""<!doctype html>
     opacity:0;transition:opacity .12s,color .12s,border-color .12s}
   .card:hover .expand-btn{opacity:1}
   .expand-btn:hover{color:var(--accent);border-color:var(--accent)}
-  /* selected highlight — accent border + backlight glow */
+  /* selected highlight — contained so only THIS card reads as selected
+     (a tight accent ring + subtle tint, no wide halo that bleeds onto neighbors) */
   .kpi.sel,.card.sel{border-color:var(--accent)!important;
-    box-shadow:0 0 0 1px var(--accent), 0 0 26px -4px var(--accent), var(--shadow);
-    transition:box-shadow .15s,border-color .15s}
+    box-shadow:inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb,var(--accent) 26%,transparent), var(--shadow);
+    background:color-mix(in srgb,var(--accent) 7%,var(--card));
+    transition:box-shadow .15s,border-color .15s,background .15s}
   .card.sel .expand-btn{opacity:1;color:var(--accent);border-color:var(--accent)}
   /* detail overlay */
   .ovl{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
@@ -648,7 +650,9 @@ let charts = {};
 // Create the chart on first call; afterwards mutate its data and animate the
 // transition (so a live refresh morphs from the last state instead of replaying
 // the grow-from-zero entry animation each poll).
+const LASTCFG = {};   // sel -> latest config, so the overlay can rebuild a chart
 function draw(key, sel, config){
+  LASTCFG[sel] = config;
   const c = charts[key];
   if (!c){ charts[key] = new Chart($(sel), config); return; }
   // Update IN PLACE: keep the chart and each dataset OBJECT, swapping only their
@@ -973,29 +977,28 @@ const ENTRY = {
 };
 const ovl=$("#entryOvl");
 const selectEl=el=>{ document.querySelectorAll(".kpi.sel,.card.sel").forEach(s=>s.classList.remove("sel")); el.classList.add("sel"); };
-// Move the live chart canvas into the overlay (so it's the real, interactive chart),
-// remembering where it came from to put it back on close.
-let movedCanvas=null,movedHome=null,movedNext=null,movedMAR=null;
-function moveChartBack(){
-  if(!movedCanvas) return;
-  const ch=Chart.getChart(movedCanvas);
-  if(movedHome) movedHome.insertBefore(movedCanvas, movedNext);
-  if(ch){ ch.options.maintainAspectRatio = movedMAR; ch.resize(); }
-  $("#ovlChart").classList.remove("show");
-  movedCanvas=movedHome=movedNext=null; movedMAR=null;
+// Render a SEPARATE chart in the overlay from the card's stored config. (Moving the
+// live canvas doesn't work: Chart.js keeps measuring its original container, so the
+// moved chart stays the card's small height. A fresh instance is created with the
+// overlay as its container, so it sizes to the big container correctly.)
+let ovlChartInst=null;
+function hideOvlChart(){
+  if(ovlChartInst){ try{ovlChartInst.destroy();}catch(e){} ovlChartInst=null; }
+  const oc=$("#ovlChart"); oc.classList.remove("show"); oc.innerHTML="";
 }
-function moveChartIn(canvas){
-  moveChartBack();
-  movedCanvas=canvas; movedHome=canvas.parentNode; movedNext=canvas.nextSibling;
-  const oc=$("#ovlChart"); oc.classList.add("show"); oc.appendChild(canvas);
-  const ch=Chart.getChart(canvas);
-  if(ch){ movedMAR=ch.options.maintainAspectRatio; ch.options.maintainAspectRatio=false; ch.resize(); }
+function showOvlChart(sel){
+  const cfg=LASTCFG[sel]; if(!cfg) return;
+  const oc=$("#ovlChart"); oc.classList.add("show"); oc.innerHTML="<canvas></canvas>";
+  // own dataset objects (fresh per-chart meta) but shared underlying data arrays
+  const data={labels:cfg.data.labels, datasets:cfg.data.datasets.map(d=>Object.assign({},d))};
+  const options=Object.assign({}, cfg.options, {responsive:true, maintainAspectRatio:false});
+  ovlChartInst=new Chart(oc.querySelector("canvas"), {type:cfg.type, data, options});
 }
-function closeOvl(){ ovl.classList.remove("open"); moveChartBack();
+function closeOvl(){ ovl.classList.remove("open"); hideOvlChart();
   document.querySelectorAll(".kpi.sel,.card.sel").forEach(el=>el.classList.remove("sel")); }
 function openKpi(el){
   const info=ENTRY[el.dataset.entry]; if(!info) return;
-  selectEl(el); moveChartBack();
+  selectEl(el); hideOvlChart();
   $("#ovlTitle").textContent=el.querySelector(".l").textContent;
   $("#ovlTag").textContent=info.tag;
   $("#ovlVal").textContent=el.querySelector(".v").textContent; $("#ovlVal").style.display="block";
@@ -1012,8 +1015,8 @@ function openChartCard(card){
   $("#ovlTag").textContent = info.tag;
   $("#ovlVal").style.display="none";
   $("#ovlBody").innerHTML = info.body;
-  moveChartIn(canvas);            // enlarged, fully interactive (zoom/hover) in the overlay
-  ovl.classList.add("open");
+  ovl.classList.add("open");      // open FIRST so the chart container has real dimensions
+  showOvlChart("#"+canvas.id);    // fresh, fully-interactive chart sized to the overlay
 }
 // Add a top-right ⤢ expand button to every chart card.
 document.querySelectorAll(".card").forEach(card=>{
