@@ -100,6 +100,7 @@ HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tokenscope — Claude Code spend</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -172,18 +173,24 @@ HTML = r"""<!doctype html>
   /* volume row */
   .nrow input[type=range]{flex:1;accent-color:var(--accent);cursor:pointer}
   .nrow .vval{width:38px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
-  /* expandable section + explainer box */
-  .section.expandable{cursor:pointer;user-select:none}
-  .section.expandable .chev{display:inline-block;transition:transform .15s;color:var(--faint);font-size:10px}
-  .section.expandable.open .chev{transform:rotate(90deg)}
-  .xinfo{display:none;background:var(--card);border:1px solid var(--line);border-radius:14px;
-    padding:16px 20px;margin:-4px 0 18px;box-shadow:var(--shadow)}
-  .xinfo.open{display:block}
-  .xinfo dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 16px;align-items:baseline}
-  .xinfo dt{font-weight:600;font-size:12.5px;color:var(--txt);white-space:nowrap}
-  .xinfo dd{margin:0;font-size:12.5px;color:var(--dim);line-height:1.5}
-  .xinfo dd b{color:var(--txt);font-weight:500}
-  @media(max-width:680px){.xinfo dl{grid-template-columns:1fr;gap:2px 0}.xinfo dt{margin-top:8px}}
+  /* per-entry expanders: each card / KPI opens its own summary */
+  h2.exp{cursor:pointer;user-select:none}
+  h2.exp::before{content:"▸";display:inline-block;margin-right:6px;color:var(--faint);
+    font-size:9px;transition:transform .15s}
+  h2.exp.open::before{transform:rotate(90deg)}
+  .entry-info{display:none;font-size:12.5px;color:var(--dim);line-height:1.55;
+    margin:-4px 0 14px;padding:11px 13px;background:var(--card-2);border:1px solid var(--line);
+    border-radius:10px;text-transform:none;letter-spacing:normal;font-weight:400}
+  .entry-info.open{display:block}
+  .entry-info b{color:var(--txt);font-weight:600}
+  .kpi.exp{cursor:pointer} .kpi.exp:hover{border-color:var(--line-2)}
+  .kpi .kpi-info{display:none;font-size:11.5px;color:var(--dim);line-height:1.5;
+    margin-top:10px;padding-top:10px;border-top:1px solid var(--line);text-transform:none;letter-spacing:normal}
+  .kpi.exp.open .kpi-info{display:block}
+  .kpi.exp .kpi-info b{color:var(--txt);font-weight:600}
+  /* a section can host its own controls on the right of the rule */
+  .section::after{order:1}
+  .section .sctl{order:2;margin-left:10px;text-transform:none;letter-spacing:0;font-weight:400}
   /* activity heatmap */
   .heat{display:grid;grid-template-columns:34px repeat(24,1fr);gap:3px;align-items:center}
   .heat .hh{font-size:10px;color:var(--faint);text-align:center}
@@ -268,11 +275,14 @@ HTML = r"""<!doctype html>
     <span><label>Theme</label><select id="themeSel">
       <option value="dark">Dark</option><option value="light">Light</option>
       <option value="yellowish">Yellowish</option></select></span>
-    <span class="pop">
+  </div>
+</header>
+<div class="wrap">
+  <div class="section">Live <span class="sctl pop">
       <button id="alertsBtn" title="Notification sounds — rings that play when a session needs you. Click to configure.">🔔 Alerts</button>
       <div class="pop-panel" id="alertsPanel">
         <h3>Notification sounds</h3>
-        <p class="hint">Sounds your machine plays when a Claude Code session wants your attention. Configured here, played by the <code>Stop</code>/<code>Notification</code> hooks.</p>
+        <p class="hint">Sounds your machine plays when a session here wants your attention. Configured here, played by the <code>Stop</code>/<code>Notification</code> hooks.</p>
         <div id="alertsBody">
           <div class="nrow">
             <input type="checkbox" id="mMaster">
@@ -304,36 +314,7 @@ HTML = r"""<!doctype html>
         </div>
         <p class="pop-note" id="alertsNote" style="display:none"></p>
       </div>
-    </span>
-    <span class="pop">
-      <button id="chartBtn" title="Chart inspection options — markers, exact lines, gridlines.">⚙ Chart</button>
-      <div class="pop-panel" id="chartPanel">
-        <h3>Chart options</h3>
-        <p class="hint">Tune the plots for precise reading rather than at-a-glance shape.</p>
-        <div class="nrow">
-          <input type="checkbox" id="oPoints">
-          <span class="nlabel">Data points
-            <span class="info" data-desc="Draw a marker at every data point so you can read individual turns/days exactly, not just the trend line.">i</span>
-          </span>
-        </div>
-        <div class="nrow">
-          <input type="checkbox" id="oExact">
-          <span class="nlabel">Exact lines
-            <span class="info" data-desc="Turn off curve smoothing so lines connect points directly — no interpolation that can misread between samples.">i</span>
-          </span>
-        </div>
-        <div class="nrow">
-          <input type="checkbox" id="oGrid">
-          <span class="nlabel">Vertical gridlines
-            <span class="info" data-desc="Add x-axis gridlines to line up points with their dates/values more accurately.">i</span>
-          </span>
-        </div>
-      </div>
-    </span>
-  </div>
-</header>
-<div class="wrap">
-  <div class="section">Live</div>
+    </span></div>
   <div class="card full" id="liveCard" style="margin-bottom:16px;display:none">
     <h2 data-desc="Current 5h/7d subscription rate-limit usage, the daily budget synthesized from the 7-day window, and rtk proxy savings. Account-wide, from the latest turn.">Usage limits &amp; budget <span id="liveMode" style="text-transform:none;font-weight:400"></span></h2>
     <div id="liveBody" class="livegrid"></div>
@@ -344,34 +325,37 @@ HTML = r"""<!doctype html>
     <div class="sess-note" id="sessNote"></div>
   </div>
 
-  <div class="section expandable" data-x="ovInfo"><span class="chev">▸</span>&nbsp;Overview <span class="n">· selected range · click for a guide</span></div>
-  <div class="xinfo" id="ovInfo"><dl>
-    <dt>Total spend</dt><dd>Summed per-turn cost (<b>includes subagents</b>) over the range. <b>Insight:</b> your real outlay — compare ranges or projects side by side.</dd>
-    <dt>Per day</dt><dd>Total ÷ active days. <b>Insight:</b> steady daily burn rate for budgeting and spotting heavy days.</dd>
-    <dt>Tokens added</dt><dd>Main-loop input+output added (<b>excludes</b> subagents and cache). <b>Insight:</b> how much fresh context you generate vs. what's reused from cache.</dd>
-    <dt>Cache tokens</dt><dd>Cache read+write volume. <b>Insight:</b> usually the bulk of traffic — high values mean lots of cheap reuse, not new spend.</dd>
-    <dt>Peak 5h window</dt><dd>Max cost in any rolling 5-hour window. <b>Insight:</b> proxy for the 5h subscription limit — how close you run to the cap.</dd>
-    <dt>Priciest turn</dt><dd>The single most expensive turn. <b>Insight:</b> surfaces subagent/workflow blow-ups worth investigating.</dd>
-    <dt>Proj. weekly</dt><dd>Per-day × 7. <b>Insight:</b> rough weekly trajectory to sanity-check against your plan's limit.</dd>
-    <dt>Turns / sessions</dt><dd>Counts in range. <b>Insight:</b> the sample size the other numbers are averaged over.</dd>
-  </dl></div>
+  <div class="section">Overview <span class="n">· selected range · click a card for detail</span></div>
   <div class="kpis" id="kpis"></div>
 
-  <div class="section expandable" data-x="spInfo"><span class="chev">▸</span>&nbsp;Spend <span class="n">· click for a guide</span></div>
-  <div class="xinfo" id="spInfo"><dl>
-    <dt>Spend per day</dt><dd>Daily cost as bars. <b>Insight:</b> trend and spikes — which days cost the most and whether spend is climbing.</dd>
-    <dt>Cumulative spend</dt><dd>Running total across the range. <b>Insight:</b> the slope is your burn rate; a steepening curve means accelerating cost.</dd>
-    <dt>Cost vs. tokens per turn</dt><dd>Each point a turn; x=tokens, y=cost, color=time. <b>Insight:</b> cost-efficiency per token — outliers high-cost/low-token are subagent turns; color drift shows efficiency changing over time.</dd>
-    <dt>Spend by project</dt><dd>Cost share per directory. <b>Insight:</b> where the money actually goes across your work.</dd>
-    <dt>Spend by model</dt><dd>Cost share per model. <b>Insight:</b> your model mix — e.g. how much pricier Fable turns are vs. Opus.</dd>
-  </dl></div>
+  <div class="section">Spend <span class="n">· click a chart title for detail</span> <span class="sctl pop">
+      <button id="chartBtn" title="Chart inspection options — markers, exact lines, gridlines, drag-to-zoom.">⚙ Chart</button>
+      <div class="pop-panel" id="chartPanel">
+        <h3>Chart options</h3>
+        <p class="hint">For precise reading rather than at-a-glance shape — applies to every chart below. Tip: <b>drag</b> across a chart to zoom, <b>double-click</b> to reset.</p>
+        <div class="nrow"><input type="checkbox" id="oPoints">
+          <span class="nlabel">Data points
+            <span class="info" data-desc="Draw a marker at every data point so you can read individual turns/days exactly, not just the trend line.">i</span></span></div>
+        <div class="nrow"><input type="checkbox" id="oExact">
+          <span class="nlabel">Exact lines
+            <span class="info" data-desc="Turn off curve smoothing so lines connect points directly — no interpolation that can misread between samples.">i</span></span></div>
+        <div class="nrow"><input type="checkbox" id="oGrid">
+          <span class="nlabel">Vertical gridlines
+            <span class="info" data-desc="Add x-axis gridlines to line up points with their dates/values more accurately.">i</span></span></div>
+      </div>
+    </span></div>
   <div class="grid">
-    <div class="card full"><h2 data-desc="Estimated cost per calendar day. turn_cost includes subagent spend; the estimate uses the PRICE rates in tokcore.py.">Spend per day</h2><canvas id="cDay"></canvas></div>
-    <div class="card"><h2 data-desc="Running total of cost across the selected range.">Cumulative spend</h2><canvas id="cCum"></canvas></div>
-    <div class="card"><h2 data-desc="Each point is one turn: main-loop tokens added (x) vs its cost (y). Point color encodes time (older → recent), so drift in cost-per-token over time is visible. Hover for project + timestamp.">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas>
+    <div class="card full"><h2 class="exp">Spend per day</h2>
+      <div class="entry-info">Estimated cost per calendar day (bars; <b>turn_cost includes subagents</b>, priced via <code>PRICE</code> in tokcore.py). <b>Insight:</b> trend and spikes — which days cost most and whether spend is climbing.</div><canvas id="cDay"></canvas></div>
+    <div class="card"><h2 class="exp">Cumulative spend</h2>
+      <div class="entry-info">Running total of cost across the range. <b>Insight:</b> the slope is your burn rate; a steepening curve means accelerating cost.</div><canvas id="cCum"></canvas></div>
+    <div class="card"><h2 class="exp">Cost vs. tokens per turn</h2>
+      <div class="entry-info">Each point is a turn: x = main-loop tokens, y = cost, color = time (older → recent). <b>Insight:</b> cost-efficiency per token — outliers high-cost/low-token are subagent turns; color drift shows efficiency changing over time.</div><canvas id="cScatter"></canvas>
       <div class="heat-legend">older <i style="width:64px;background:linear-gradient(90deg,#6E8BFF,#3ECF8E)"></i> recent</div></div>
-    <div class="card"><h2 data-desc="Share of total cost by project directory.">Spend by project</h2><canvas id="cProj"></canvas></div>
-    <div class="card"><h2 data-desc="Share of total cost by model. Only turns that recorded a model id (newer rows) are counted.">Spend by model</h2><canvas id="cModel"></canvas></div>
+    <div class="card"><h2 class="exp">Spend by project</h2>
+      <div class="entry-info">Share of total cost by project directory. <b>Insight:</b> where the money actually goes across your work.</div><canvas id="cProj"></canvas></div>
+    <div class="card"><h2 class="exp">Spend by model</h2>
+      <div class="entry-info">Share of total cost by model (turns that recorded a model id). <b>Insight:</b> your model mix — e.g. how much pricier Fable turns are vs. Opus.</div><canvas id="cModel"></canvas></div>
   </div>
 
   <div class="section">Tokens &amp; cache</div>
@@ -446,6 +430,19 @@ Chart.defaults.plugins.tooltip.bodyColor = "#9BA3AE";
 Chart.defaults.plugins.tooltip.padding = 10;
 Chart.defaults.plugins.tooltip.cornerRadius = 8;
 Chart.defaults.plugins.tooltip.displayColors = false;
+// Drag-to-zoom for fine inspection (chartjs-plugin-zoom, if it loaded).
+// Drag a range on the x-axis to zoom; wheel to zoom; double-click any chart to reset.
+if (window.Chart && Chart.registry && Chart.registry.plugins.get("zoom")){
+  Chart.defaults.plugins.zoom = {
+    zoom:{ wheel:{enabled:true}, drag:{enabled:true, backgroundColor:"rgba(91,185,214,.18)",
+           borderColor:"#5BB9D6", borderWidth:1}, mode:"x" }
+  };
+}
+document.addEventListener("dblclick", e=>{
+  if(e.target && e.target.tagName==="CANVAS"){
+    const c=Chart.getChart(e.target); if(c && c.resetZoom) c.resetZoom();
+  }
+});
 
 // Soft vertical gradient fill: opaque-ish at the line, fading to transparent.
 function grad(hex){
@@ -635,17 +632,17 @@ function render(){
   const maxTurn = costs.length?Math.max(...costs):0;
   const {peak} = peakWindow(rows);
   const kpi = [
-    ["exact", money(totCost), "Total spend"],
-    ["exact", money(totCost/days), "Per day"],
-    ["partial", toks(posTok), "Tokens added"],
-    ["border", toks(cacheTot), "Cache tokens"],
-    ["border", money(peak), "Peak 5h window"],
-    ["red", money(maxTurn), "Priciest turn"],
-    ["partial", money(totCost/days*7), "Proj. weekly"],
-    ["exact", rows.length+" / "+sessions, "Turns / sessions"],
+    ["exact", money(totCost), "Total spend", "Summed per-turn cost (<b>includes subagents</b>) over the range. <b>Insight:</b> your real outlay — compare ranges or projects."],
+    ["exact", money(totCost/days), "Per day", "Total ÷ active days. <b>Insight:</b> steady daily burn rate for budgeting and spotting heavy days."],
+    ["partial", toks(posTok), "Tokens added", "Main-loop input+output added (<b>excludes</b> subagents and cache). <b>Insight:</b> how much fresh context you generate vs. what's reused."],
+    ["border", toks(cacheTot), "Cache tokens", "Cache read+write volume. <b>Insight:</b> usually the bulk of traffic — high values mean cheap reuse, not new spend."],
+    ["border", money(peak), "Peak 5h window", "Max cost in any rolling 5-hour window. <b>Insight:</b> proxy for the 5h subscription limit — how close you run to the cap."],
+    ["red", money(maxTurn), "Priciest turn", "The single most expensive turn. <b>Insight:</b> surfaces subagent/workflow blow-ups worth investigating."],
+    ["partial", money(totCost/days*7), "Proj. weekly", "Per-day × 7. <b>Insight:</b> rough weekly trajectory to sanity-check against your plan's limit."],
+    ["exact", rows.length+" / "+sessions, "Turns / sessions", "Counts in range. <b>Insight:</b> the sample size the other numbers are averaged over."],
   ];
-  $("#kpis").innerHTML = kpi.map(([c,v,l])=>
-    `<div class="kpi ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  $("#kpis").innerHTML = kpi.map(([c,v,l,d])=>
+    `<div class="kpi ${c} exp"><div class="v">${v}</div><div class="l">${l}</div><div class="kpi-info">${d}</div></div>`).join("");
 
   const byDay = {};
   rows.forEach(r=>{ const d=fmtDay(r.epoch); (byDay[d]=byDay[d]||{c:0,t:0}); byDay[d].c+=r.turn_cost||0; byDay[d].t+=Math.max(0,r.turn_tokens||0); });
@@ -861,15 +858,16 @@ function saveChartOpts(){
 ["oPoints","oExact","oGrid"].forEach(id=>$("#"+id).addEventListener("change",saveChartOpts));
 paintChartOpts();
 
-// ---- expandable section guides ----
-document.querySelectorAll(".section.expandable").forEach(sec=>{
-  const box=document.getElementById(sec.dataset.x);
-  let open=false; try{open=localStorage.getItem("ts-exp-"+sec.dataset.x)==="1";}catch(e){}
-  if(open){sec.classList.add("open");box.classList.add("open");}
-  sec.addEventListener("click",()=>{
-    const now=box.classList.toggle("open"); sec.classList.toggle("open",now);
-    try{localStorage.setItem("ts-exp-"+sec.dataset.x,now?"1":"0");}catch(e){}
-  });
+// ---- per-entry expanders: each KPI / chart title opens its own summary ----
+// Delegated (KPIs are re-rendered every render()): chart h2.exp toggle the next
+// .entry-info; KPI cards toggle their own .open. Click-state is ephemeral.
+document.addEventListener("click",e=>{
+  const h2=e.target.closest && e.target.closest("h2.exp");
+  if(h2){const inf=h2.nextElementSibling;
+    if(inf&&inf.classList.contains("entry-info")){h2.classList.toggle("open");inf.classList.toggle("open");}
+    return;}
+  const kpi=e.target.closest && e.target.closest(".kpi.exp");
+  if(kpi){kpi.classList.toggle("open");}
 });
 
 // ---- popovers (alerts + chart) — one open at a time, click-outside closes ----

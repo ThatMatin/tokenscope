@@ -5,6 +5,9 @@ visualized **status line** plus a unified `tokenscope` CLI for token usage, cost
 context-window fill, and your subscription rate limits — all from data Claude Code already
 emits. No API keys, no telemetry backend, no network calls.
 
+> Maintainers: see [RUNBOOK.md](RUNBOOK.md) for architecture, data contracts,
+> troubleshooting, and how to extend.
+
 One entrypoint over a shared core (`tokcore.py`):
 
 | command | what it shows |
@@ -119,11 +122,14 @@ Optionally alias it: `alias tokenscope='python3 /path/to/tokenscope.py'`
 
 ## Notifications & theme
 
-The served dashboard (`tokenscope serve`) has two controls in the header:
+The served dashboard (`tokenscope serve`) places each setting next to the section it
+affects: **🔔 Alerts** sits on the **Live** section (it's about sessions wanting you),
+**⚙ Chart** sits on the **Spend** section (it tunes the charts), and **Theme** stays
+in the header (it's global).
 
-- **🔔 Alerts** — sounds your machine plays when a session wants you. A master
-  on/off, a **volume** slider, plus two events each with its own sound (hover the
-  ⓘ for what each is):
+- **🔔 Alerts** (on the Live section) — sounds your machine plays when a session
+  wants you. A master on/off, a **volume** slider, plus two events each with its own
+  sound (hover the ⓘ for what each is):
   - **Session idle** — a session finished responding and handed control back (the
     `Stop` hook).
   - **Needs your input** — Claude is waiting mid-task on a permission prompt or a
@@ -135,14 +141,16 @@ The served dashboard (`tokenscope serve`) has two controls in the header:
   fallback off macOS). Subagent completions deliberately do **not** ring. The static
   `dashboard` export shows the controls view-only (a file:// page can't persist).
 
-- **⚙ Chart** — inspection options for precise reading rather than at-a-glance
-  shape: **data points** (marker per sample), **exact lines** (disable smoothing),
-  **vertical gridlines**. Remembered in `localStorage`.
+- **⚙ Chart** (on the Spend section) — inspection options for precise reading rather
+  than at-a-glance shape: **data points** (marker per sample), **exact lines** (disable
+  smoothing), **vertical gridlines**, and **drag-to-zoom** (drag across any chart to
+  zoom an x-range, double-click to reset; via `chartjs-plugin-zoom`). Remembered in
+  `localStorage`.
 
-- **Theme** — Dark / Light / Yellowish, remembered in `localStorage`.
+- **Theme** (header) — Dark / Light / Yellowish, remembered in `localStorage`.
 
-The **Overview** and **Spend** section headers are click-to-expand: each opens a
-guide explaining every metric/chart in it and the insight it gives.
+Every **Overview** KPI and **Spend** chart is individually click-to-expand: clicking a
+card / chart title opens that entry's own summary — what it is and the insight it gives.
 
 Hook wiring (`~/.claude/settings.json`):
 
