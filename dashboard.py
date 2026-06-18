@@ -878,6 +878,13 @@ function draw(key, sel, config){
   // labels/data arrays. Replacing chart.data wholesale gives Chart.js new dataset
   // objects, which it animates from zero — preserving identity makes it tween
   // from the last frame instead.
+  // Preserve the user's current zoom/pan across the in-place refresh. A live `serve`
+  // poll calls render() → draw() every few seconds; replacing c.options + update()
+  // drops the zoom, so without this every poll snapped the chart back to full extent
+  // (most visible on the scatter, which is the only chart people zoom heavily).
+  const keepZoom = c.isZoomedOrPanned && c.isZoomedOrPanned();
+  const sx = keepZoom && c.scales.x ? {min:c.scales.x.min, max:c.scales.x.max} : null;
+  const sy = keepZoom && c.scales.y ? {min:c.scales.y.min, max:c.scales.y.max} : null;
   const nd = config.data;
   c.data.labels = nd.labels;
   nd.datasets.forEach((ds, i) => {
@@ -887,6 +894,12 @@ function draw(key, sel, config){
   c.data.datasets.length = nd.datasets.length;
   if (config.options) c.options = config.options;
   c.update();
+  if (keepZoom && c.zoomScale){
+    try{
+      if (sx) c.zoomScale("x", sx, "none");
+      if (sy && c.scales.y) c.zoomScale("y", sy, "none");
+    }catch(e){}
+  }
 }
 
 function filtered(){
@@ -1049,7 +1062,10 @@ function render(){
       title:i=>new Date(i[0].raw.t).toLocaleString(),
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
       scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
-              y:{...GRID.y,title:{display:true,text:"cost",color:"#5B6470"},ticks:{callback:v=>"$"+v}}}}});
+              // Lock the y-axis width and bound the label precision — otherwise zooming in
+              // produces long fractional "$0.0000123" ticks that widen the axis and shrink the plot.
+              y:{...GRID.y,title:{display:true,text:"cost",color:"#5B6470"},afterFit:s=>{s.width=54;},
+                 ticks:{maxTicksLimit:6, callback:v=>"$"+(+v).toFixed(Math.abs(v)<1?3:1)}}}}});
 
   const top=[...rows].sort((a,b)=>(b.turn_cost||0)-(a.turn_cost||0)).slice(0,12);
   $("#tTop tbody").innerHTML = top.map(r=>{

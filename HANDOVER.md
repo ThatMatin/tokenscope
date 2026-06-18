@@ -107,6 +107,13 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    - **Rubber-band ONLY at full extent**: when zoomed, hitting an edge just clamps; only
      at full extent (nothing to pan) does the drag become a damped `translateX` that
      springs back on mouseup (pure CSS — never touches scales).
+   - **Zoom survives a live refresh.** `draw()` replaces `c.options` + `update()` on every
+     `serve` poll, which dropped the zoom (every poll snapped back to full — most obvious
+     on the scatter). `draw()` now captures `c.scales.{x,y}.{min,max}` when
+     `isZoomedOrPanned()` and re-applies them via `zoomScale` after the update.
+   - **Scatter y-axis width is locked** (`afterFit: s=>s.width=54`) with bounded-precision
+     `$` ticks — otherwise zooming in produced long fractional `$0.0000123` labels that
+     widened the axis and shrank the plot.
 9. **Switching zoom/pan mode at runtime must flip flags on each chart's OWN resolved
    `c.options.plugins.zoom`, not `Chart.defaults`.** Chart.js v4 resolves defaults
    into `c.options` at creation, so mutating defaults afterwards never reaches a live
