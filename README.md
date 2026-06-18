@@ -27,11 +27,14 @@ Bare `tokenscope` (with the old `-i/-c/-f/--project` flags) still launches `live
 
 ```
 Opus 4.8 · myproject ████░░░░░░ 39% · 78400t · Δ840 tok · Δ$0.02 · $2.41 · 88m 30s
-5h ██░░░░░░ 24% ↻1h51m · 7d ███████░ 88% ↻4d3h · rtk ↓90% 3.97M
+5h ██░░░░░░ 24% ↻1h51m · 7d ███████░ 88% ↻4d3h · today 6%/14% · rtk ↓90% 3.97M
 ```
 
 - context-window bar, live tokens, per-turn token/cost deltas, session cost, elapsed
 - **5h / 7d rate-limit bars with reset countdowns** — the same data `/usage` shows
+- **today** — how much of an even fair-share day (100%/7 ≈ 14%) of the 7d limit
+  you've burned since the first turn today; baseline persists in
+  `~/.claude/tokenscope-daily.json`, resets each UTC day or new 7d window
 - optional `rtk` token-proxy savings (shown only if an `rtk` CLI is on your `PATH`)
 
 **2. Dashboard** (`tokenscope.py`) — a refreshing full-screen view for a second pane:

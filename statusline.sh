@@ -135,6 +135,31 @@ LINE="${EXACT}${MODEL}${SEP}${EXACT}${DIR}${RESET} $(mkbar "$PCT_INT" 10) ${EXAC
 LINE="${LINE}${SEP}${EXACT}${COST_STR}${SEP}${EXACT}${TIME_STR}${RESET}"
 echo -e "$LINE"
 
+# --- daily slice of the 7d limit (derived) ---
+# The 7d window is usually the binding limit; "today" shows how much of an even
+# fair-share day (100%/7 ≈ 14%) you've burned since the first render today.
+# The baseline (7d% at the start of the UTC day) is persisted and reset on a new
+# day or a new 7d window (reset-epoch change). jq only — no python3 needed here.
+DAILY_USED=""; DAILY_FAIR=""
+if [ -n "$SEVEN_PCT" ] && [ -n "$SEVEN_RESET" ]; then
+  DAILY_STATE="$HOME/.claude/tokenscope-daily.json"
+  TODAY=$(date -u +%Y-%m-%d); SR="${SEVEN_RESET%%.*}"
+  D_DAY=""; D_RESET=""; D_BASE=""
+  if [ -f "$DAILY_STATE" ]; then
+    D_DAY=$(jq -r '.day // ""' "$DAILY_STATE" 2>/dev/null)
+    D_RESET=$(jq -r '.reset // ""' "$DAILY_STATE" 2>/dev/null)
+    D_BASE=$(jq -r '.base_7d // ""' "$DAILY_STATE" 2>/dev/null)
+  fi
+  # New day or new 7d window: capture today's starting baseline so the first
+  # render shows ~0% (rather than the day's whole accumulation).
+  if [ "$D_DAY" != "$TODAY" ] || [ "$D_RESET" != "$SR" ]; then
+    D_BASE="$SEVEN_PCT"
+    printf '{"day":"%s","reset":%s,"base_7d":%s}' "$TODAY" "$SR" "$SEVEN_PCT" > "$DAILY_STATE" 2>/dev/null
+  fi
+  DAILY_USED=$(awk -v p="$SEVEN_PCT" -v b="${D_BASE:-$SEVEN_PCT}" 'BEGIN{u=p-b;if(u<0)u=0;printf "%.1f",u}')
+  DAILY_FAIR=$(awk 'BEGIN{printf "%.0f",100/7}')
+fi
+
 # --- line 2: /usage rate limits + optional rtk ---
 USAGE_LINE=""
 if [ -n "$FIVE_PCT" ]; then
@@ -147,6 +172,11 @@ if [ -n "$SEVEN_PCT" ]; then
   [ -n "$USAGE_LINE" ] && USAGE_LINE="${USAGE_LINE}${SEP}"
   USAGE_LINE="${USAGE_LINE}${EXACT}7d${RESET} $(mkbar "$S_INT" 8) ${EXACT}${S_INT}%${RESET}"
   [ -n "$SEVEN_RESET" ] && USAGE_LINE="${USAGE_LINE} ${GENERATED}↻$(fmt_reset "$SEVEN_RESET")${RESET}"
+fi
+# "today" is a heading (EXACT, like 5h/7d); the value is derived, so GENERATED.
+if [ -n "$DAILY_USED" ]; then
+  [ -n "$USAGE_LINE" ] && USAGE_LINE="${USAGE_LINE}${SEP}"
+  USAGE_LINE="${USAGE_LINE}${EXACT}today${RESET} ${GENERATED}${DAILY_USED}%/${DAILY_FAIR}%${RESET}"
 fi
 if [ -n "$RTK_SAVED" ]; then
   [ -n "$USAGE_LINE" ] && USAGE_LINE="${USAGE_LINE}${SEP}"
