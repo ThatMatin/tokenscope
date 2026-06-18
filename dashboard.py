@@ -266,10 +266,24 @@ HTML = r"""<!doctype html>
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
     box-shadow:var(--shadow);position:relative}
-  .zreset{position:absolute;top:12px;right:14px;display:none;z-index:5;cursor:pointer;
-    font-size:11px;padding:3px 9px;border-radius:7px;background:var(--card-2);
-    border:1px solid var(--line-2);color:var(--faint)}
-  .zreset:hover{border-color:var(--accent);color:var(--accent)}
+  /* Per-graph toolbar: a Zoom/Pan toggle + reset, pinned top-right ON each chart.
+     Faint by default, full opacity on card hover so it's always reachable but quiet. */
+  .chart-tools{position:absolute;top:10px;right:12px;z-index:5;display:flex;gap:6px;
+    align-items:center;opacity:.45;transition:opacity .15s}
+  .card:hover .chart-tools{opacity:1}
+  .chart-tools .seg button{padding:3px 9px;font-size:11px}
+  .ctbtn{cursor:pointer;font-size:12px;line-height:1;padding:4px 8px;border-radius:7px;
+    background:var(--card-2);border:1px solid var(--line-2);color:var(--faint)}
+  .ctbtn:hover{border-color:var(--accent);color:var(--accent)}
+  /* Sidebar search results: grouped sections / projects under the search box. */
+  .sb-results{display:none;flex-direction:column;margin-top:-8px;
+    border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--card)}
+  .sb-results.open{display:flex}
+  .sb-results .rgrp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--faint);padding:7px 11px 2px}
+  .sb-results .ritem{padding:6px 11px;font-size:13px;color:var(--dim);cursor:pointer}
+  .sb-results .ritem:hover{background:var(--card-2);color:var(--txt)}
+  .sb-results .ritem.muted{cursor:default;color:var(--faint)}
   .card h2{font-size:12px;margin:0 0 14px;color:var(--dim);font-weight:500;
     text-transform:uppercase;letter-spacing:.07em}
   /* Section description: hover the header only (not the data inside). */
@@ -333,7 +347,8 @@ HTML = r"""<!doctype html>
 <div class="app">
 <aside class="sidebar">
   <div class="sb-brand"><span class="z">token</span>scope</div>
-  <div class="sb-search"><input id="navSearch" type="search" placeholder="Search sessions…" autocomplete="off" title="Filter the Active sessions list by name or project"></div>
+  <div class="sb-search"><input id="navSearch" type="search" placeholder="Search sessions, projects…" autocomplete="off" title="Filter the Active sessions list, and jump to a section or project"></div>
+  <div class="sb-results" id="navResults"></div>
   <nav class="sb-nav" id="navList">
     <a class="navlink" data-target="sec-live"><span class="nd"></span>Live &amp; sessions</a>
     <a class="navlink" data-target="sec-overview"><span class="nd"></span>Overview</a>
@@ -347,8 +362,8 @@ HTML = r"""<!doctype html>
   <div class="sb-foot">
     <div><label>Chart scroll</label><br>
       <span class="seg" id="navModeSeg">
-        <button id="navZoom" class="on" title="Wheel scroll & drag zoom into a chart">Zoom</button>
-        <button id="navPan" title="Wheel scroll & drag move across a zoomed chart">Pan</button>
+        <button class="nm-zoom on" title="Wheel scroll & drag zoom into a chart">Zoom</button>
+        <button class="nm-pan" title="Wheel scroll & drag move across a zoomed chart">Pan</button>
       </span></div>
     <div><label>Theme</label><br>
       <select id="themeSel"><option value="dark">Dark</option><option value="light">Light</option>
@@ -554,22 +569,6 @@ Chart.register({
   }
 });
 
-// Reset-zoom affordance: a small button that appears on a chart ONLY while it's
-// zoomed/panned (progressive disclosure), so the reset isn't a hidden double-click.
-Chart.register({
-  id:"resetBtn",
-  afterDraw(chart){
-    if(!chart.isZoomedOrPanned) return;   // zoom plugin not loaded
-    const card=chart.canvas.closest(".card"); if(!card) return;
-    let b=card.querySelector(".zreset");
-    if(!b){
-      b=document.createElement("button"); b.className="zreset"; b.textContent="⟲ reset zoom";
-      b.addEventListener("click",()=>chart.resetZoom());
-      card.appendChild(b);
-    }
-    b.style.display = chart.isZoomedOrPanned() ? "block" : "none";
-  }
-});
 // Two navigation modes (chartjs-plugin-zoom, if it loaded):
 //   zoom — wheel scroll & drag zoom INTO a chart (default)
 //   pan  — wheel scroll & drag MOVE across an already-zoomed chart
@@ -584,27 +583,31 @@ let NAVMODE = "zoom";
 try{ const m=localStorage.getItem("ts-navmode"); if(m==="pan"||m==="zoom") NAVMODE=m; }catch(e){}
 if (ZOOM_OK){
   const z = Chart.defaults.plugins.zoom;
-  z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";
+  z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";  // rubber-band selection box
   z.zoom.drag.borderColor = "#5BB9D6";
   z.zoom.drag.borderWidth = 1;
   z.zoom.mode = "x";
   z.pan.mode = "x";
+  // Keep zoom & pan inside the data — panning can't wander into empty space and you
+  // can't zoom out past the original extent (so pan stays at the current zoom level).
+  z.limits = {x:{min:"original", max:"original"}};
 }
 function applyNavMode(){
   if (ZOOM_OK){
     const z = Chart.defaults.plugins.zoom;
     const pan = NAVMODE==="pan";
     z.zoom.wheel.enabled = !pan;   // plugin wheel = zoom only; pan-on-wheel is custom (below)
-    z.zoom.drag.enabled  = !pan;
-    z.pan.enabled        = pan;
+    z.zoom.drag.enabled  = !pan;   // zoom mode: drag draws a window, then zooms into it
+    z.pan.enabled        = pan;    // pan mode: drag translates within the current zoom
   }
   for(const k in charts){ const c=charts[k];
     if(c.config.type==="doughnut"||c.config.type==="pie") continue;
     c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
     c.update("none");
   }
-  const zb=$("#navZoom"), pb=$("#navPan");
-  if(zb&&pb){ zb.classList.toggle("on",NAVMODE==="zoom"); pb.classList.toggle("on",NAVMODE==="pan"); }
+  // sync every Zoom/Pan toggle (sidebar + per-chart toolbars)
+  document.querySelectorAll(".nm-zoom").forEach(b=>b.classList.toggle("on",NAVMODE==="zoom"));
+  document.querySelectorAll(".nm-pan").forEach(b=>b.classList.toggle("on",NAVMODE==="pan"));
   try{ localStorage.setItem("ts-navmode",NAVMODE); }catch(e){}
 }
 function setNavMode(m){ NAVMODE=m; applyNavMode(); }
@@ -1188,7 +1191,11 @@ function wirePop(btn,panel){
   $(panel).addEventListener("click",e=>e.stopPropagation());
 }
 wirePop("#alertsBtn","#alertsPanel"); wirePop("#chartBtn","#chartPanel");
-document.addEventListener("click",()=>document.querySelectorAll(".pop-panel").forEach(p=>p.classList.remove("open")));
+document.addEventListener("click",e=>{
+  document.querySelectorAll(".pop-panel").forEach(p=>p.classList.remove("open"));
+  if(!e.target.closest("#navResults") && !e.target.closest(".sb-search"))
+    $("#navResults")?.classList.remove("open");
+});
 
 // ---- sidebar: section nav (click + scroll-spy), session search, chart-scroll mode
 function initSidebar(){
@@ -1211,16 +1218,67 @@ function initSidebar(){
     },{rootMargin:"-8% 0px -80% 0px",threshold:0});
     targets.forEach(t=>io.observe(t));
   }
-  // session search
+  // search: filter the sessions table live, AND offer section / project jumps
   const sb=$("#navSearch");
-  if(sb) sb.addEventListener("input",()=>{ SESS_Q=sb.value; renderSessions(); });
-  // chart-scroll mode (zoom / pan)
-  const zb=$("#navZoom"), pb=$("#navPan");
-  if(zb) zb.addEventListener("click",()=>setNavMode("zoom"));
-  if(pb) pb.addEventListener("click",()=>setNavMode("pan"));
+  if(sb){
+    sb.addEventListener("input",()=>{ SESS_Q=sb.value; renderSessions(); buildSearchResults(sb.value.trim()); });
+    sb.addEventListener("keydown",e=>{ if(e.key==="Escape"){ sb.value=""; SESS_Q=""; renderSessions(); buildSearchResults(""); } });
+  }
+  const box=$("#navResults");
+  if(box) box.addEventListener("click",e=>{
+    const it=e.target.closest(".ritem"); if(!it) return;
+    if(it.dataset.sec){
+      document.getElementById(it.dataset.sec)?.scrollIntoView({behavior:"smooth",block:"start"});
+    } else if("proj" in it.dataset){
+      selP.value=it.dataset.proj; render();
+      document.getElementById("sec-spend")?.scrollIntoView({behavior:"smooth",block:"start"});
+    }
+    box.classList.remove("open");
+  });
+  // chart-scroll mode toggle in the sidebar (per-chart toolbars wire their own)
+  document.querySelectorAll("#navModeSeg .nm-zoom").forEach(b=>b.addEventListener("click",()=>setNavMode("zoom")));
+  document.querySelectorAll("#navModeSeg .nm-pan").forEach(b=>b.addEventListener("click",()=>setNavMode("pan")));
 }
 
-function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); initSidebar(); applyNavMode(); }
+// Search results dropdown: matching sections (jump) + projects (filter). The
+// sessions table itself is filtered live by SESS_Q in renderSessions().
+function buildSearchResults(q){
+  const box=$("#navResults"); if(!box) return;
+  if(!q){ box.classList.remove("open"); box.innerHTML=""; return; }
+  const ql=q.toLowerCase(), esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+  const secs=[...document.querySelectorAll(".sb-nav .navlink")]
+    .filter(a=>a.textContent.toLowerCase().includes(ql))
+    .map(a=>({label:a.textContent.trim(),target:a.dataset.target}));
+  const projs=[...new Set(DATA.map(r=>r.project).filter(Boolean))]
+    .filter(p=>p.toLowerCase().includes(ql)).sort().slice(0,6);
+  let html="";
+  if(secs.length) html+='<div class="rgrp">Go to section</div>'+
+    secs.map(s=>`<div class="ritem" data-sec="${esc(s.target)}">${esc(s.label)}</div>`).join("");
+  if(projs.length) html+='<div class="rgrp">Filter project</div>'+
+    projs.map(p=>`<div class="ritem" data-proj="${esc(p)}">${esc(p)}</div>`).join("");
+  box.innerHTML = html || '<div class="ritem muted">No section or project matches</div>';
+  box.classList.add("open");
+}
+
+// Per-graph toolbar: a Zoom/Pan toggle + reset button placed ON each cartesian
+// chart, so the controls are reachable without leaving the graph.
+function initChartToolbars(){
+  for(const k in charts){ const c=charts[k];
+    if(c.config.type==="doughnut"||c.config.type==="pie") continue;
+    const card=c.canvas.closest(".card"); if(!card || card.querySelector(".chart-tools")) continue;
+    const tools=document.createElement("div"); tools.className="chart-tools";
+    tools.innerHTML=
+      '<span class="seg"><button class="nm-zoom" title="Wheel & drag zoom into a window">Zoom</button>'+
+      '<button class="nm-pan" title="Wheel & drag pan at the current zoom">Pan</button></span>'+
+      '<button class="ctbtn ctreset" title="Reset zoom (or double-click the chart)">⟲</button>';
+    tools.querySelector(".nm-zoom").addEventListener("click",()=>setNavMode("zoom"));
+    tools.querySelector(".nm-pan").addEventListener("click",()=>setNavMode("pan"));
+    tools.querySelector(".ctreset").addEventListener("click",()=>{ if(c.resetZoom) c.resetZoom(); });
+    card.appendChild(tools);
+  }
+}
+
+function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); initSidebar(); initChartToolbars(); applyNavMode(); }
 boot();
 
 // "recently" threshold control (re-render sessions on change)

@@ -30,10 +30,20 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
   with the **Chart scroll** Zoom/Pan toggle + Theme select (both moved out of the
   old top header; header is now just filters + live badge).
 - dashboard chart **navigation modes**: `NAVMODE` (`zoom`|`pan`, persisted
-  `ts-navmode`). Zoom = wheel & drag zoom in; Pan = wheel & drag move across a
-  zoomed chart. `applyNavMode()` flips the plugin's wheel/drag/pan flags + canvas
-  cursor (crosshair vs grab). The zoom plugin only zooms on wheel, so **pan-on-wheel
-  is a custom `wheel` listener** that calls `chart.pan({x:-delta})`.
+  `ts-navmode`). Zoom = wheel & drag-rubber-band zoom in; Pan = wheel & drag move
+  across a zoomed chart (zoom span fixed; `z.limits.x = original` keeps pan/zoom
+  inside the data). `applyNavMode()` flips the plugin's wheel/drag/pan flags + canvas
+  cursor (crosshair vs grab) and syncs every `.nm-zoom`/`.nm-pan` toggle. The zoom
+  plugin only zooms on wheel, so **pan-on-wheel is a custom `wheel` listener** calling
+  `chart.pan({x:-delta})`.
+- dashboard **per-graph toolbar** (`initChartToolbars`): every cartesian chart gets a
+  `.chart-tools` overlay (top-right) with a Zoom/Pan toggle + `⟲` reset, so the
+  controls live ON the graph (faint, full opacity on card hover). Toggles share the
+  global `NAVMODE`; reset calls that chart's `resetZoom()`. (Replaced the old
+  appears-only-when-zoomed `.zreset` plugin.)
+- dashboard **search** (`#navSearch`): filters the sessions table live (`SESS_Q`) AND
+  shows a `#navResults` dropdown of matching sections (scroll-jump) and projects
+  (set the project filter + jump to Spend). `buildSearchResults()` builds it.
 - dashboard chart navigation: global **index-mode hover** (`intersect:false`) so you
   read the value at the nearest x — all series at once — by hovering anywhere, not
   on an invisible radius-0 point; a faint dashed **crosshair** guide at the hovered
