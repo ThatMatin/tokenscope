@@ -37,10 +37,11 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
   plugin only zooms on wheel, so **pan-on-wheel is a custom `wheel` listener** calling
   `chart.pan({x:-delta})`.
 - dashboard **per-graph toolbar** (`initChartToolbars`): every cartesian chart gets a
-  `.chart-tools` overlay (top-right) with a Zoom/Pan toggle + `⟲` reset, so the
-  controls live ON the graph (faint, full opacity on card hover). Toggles share the
-  global `NAVMODE`; reset calls that chart's `resetZoom()`. (Replaced the old
-  appears-only-when-zoomed `.zreset` plugin.)
+  `.chart-tools` overlay with a Zoom/Pan toggle + `⟲` reset, so the controls live ON
+  the graph (faint, full opacity on card hover). Sits at `right:46px` to clear the
+  `.expand-btn` (`right:12px`). The **detail-overlay chart gets the same toolbar**
+  (added in `showOvlChart`, positioned `right:12px` — no expand button there). Toggles
+  share the global `NAVMODE`; reset calls that chart's `resetZoom()`.
 - dashboard **search** (`#navSearch`): filters the sessions table live (`SESS_Q`) AND
   shows a `#navResults` dropdown of matching sections (scroll-jump) and projects
   (set the project filter + jump to Spend). `buildSearchResults()` builds it.
@@ -90,7 +91,19 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
 8. **Pan-on-wheel is custom, not the zoom plugin.** chartjs-plugin-zoom only zooms
    on wheel; in pan mode a `wheel` listener calls `chart.pan({x:-delta})`. Doughnuts
    set `pan:{enabled:false}` in their per-chart config so the global `NAVMODE` toggle
-   (which mutates `Chart.defaults.plugins.zoom.pan.enabled`) never pans them.
+   never pans them.
+9. **Switching zoom/pan mode at runtime must flip flags on each chart's OWN resolved
+   `c.options.plugins.zoom`, not `Chart.defaults`.** Chart.js v4 resolves defaults
+   into `c.options` at creation, so mutating defaults afterwards never reaches a live
+   chart — that's why drag-pan looked dead. BUT only flip the existing `.enabled`
+   booleans (`setChartNav`): creating new nested zoom objects or reassigning `.limits`
+   on a live chart corrupts the plugin state and sends `chart.update()` into infinite
+   recursion (RangeError: Maximum call stack). `render()` reasserts the flags because
+   `draw()` replaces `c.options` on every live refresh.
+10. **Selection highlight uses its own `--sel` color** (blue-violet), deliberately
+   NOT the green `--accent` (which is everywhere — bars, active pills), so a selected
+   KPI/card reads as selected. The highlight is a box-shadow ring + tint (KPIs have no
+   border), applied via `.kpi.sel,.card.sel`.
 
 ## How to verify dashboard changes (USE THIS — don't eyeball)
 

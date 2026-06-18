@@ -113,6 +113,7 @@ HTML = r"""<!doctype html>
     --accent:#3ECF8E;
     /* muted, lower-chroma data palette */
     --exact:#3ECF8E; --border:#5BB9D6; --partial:#D8A848; --red:#E0607E; --gray:#6b7280;
+    --sel:#6E8BFF;   /* selection highlight — a distinct blue-violet, not the green accent */
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.18);
     --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
@@ -122,6 +123,7 @@ HTML = r"""<!doctype html>
     --line:#E3E7EC; --line-2:#D2D8DF;
     --txt:#1B2430; --dim:#566070; --faint:#8A94A2;
     --accent:#1F9D6B; --exact:#1F9D6B; --border:#2E86A8; --partial:#B07D1E; --red:#C8385C;
+    --sel:#3F5BD0;
     --shadow:0 1px 2px rgba(20,30,50,.06), 0 8px 24px rgba(20,30,50,.07);
   }
   /* Yellowish — warm cream/sepia with an amber accent. */
@@ -130,6 +132,7 @@ HTML = r"""<!doctype html>
     --line:#E4D7B5; --line-2:#D8C79C;
     --txt:#3A3320; --dim:#6B6038; --faint:#9A8C5C;
     --accent:#B8860B; --exact:#6E8B3D; --border:#3E7C8C; --partial:#B8860B; --red:#C0533B;
+    --sel:#3E6E8C;
     --shadow:0 1px 2px rgba(120,90,20,.08), 0 8px 24px rgba(120,90,20,.09);
   }
   *{box-sizing:border-box}
@@ -217,11 +220,11 @@ HTML = r"""<!doctype html>
   .expand-btn:hover{color:var(--accent);border-color:var(--accent)}
   /* selected highlight — contained so only THIS card reads as selected
      (a tight accent ring + subtle tint, no wide halo that bleeds onto neighbors) */
-  .kpi.sel,.card.sel{border-color:var(--accent)!important;
-    box-shadow:inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb,var(--accent) 26%,transparent), var(--shadow);
-    background:color-mix(in srgb,var(--accent) 7%,var(--card));
+  .kpi.sel,.card.sel{border-color:var(--sel)!important;
+    box-shadow:inset 0 0 0 1px var(--sel), 0 0 0 3px color-mix(in srgb,var(--sel) 32%,transparent), var(--shadow);
+    background:color-mix(in srgb,var(--sel) 12%,var(--card));
     transition:box-shadow .15s,border-color .15s,background .15s}
-  .card.sel .expand-btn{opacity:1;color:var(--accent);border-color:var(--accent)}
+  .card.sel .expand-btn{opacity:1;color:var(--sel);border-color:var(--sel)}
   /* detail overlay */
   .ovl{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
     background:color-mix(in srgb,var(--bg) 62%,transparent);backdrop-filter:blur(3px);padding:24px}
@@ -268,9 +271,10 @@ HTML = r"""<!doctype html>
     box-shadow:var(--shadow);position:relative}
   /* Per-graph toolbar: a Zoom/Pan toggle + reset, pinned top-right ON each chart.
      Faint by default, full opacity on card hover so it's always reachable but quiet. */
-  .chart-tools{position:absolute;top:10px;right:12px;z-index:5;display:flex;gap:6px;
+  .chart-tools{position:absolute;top:10px;right:46px;z-index:5;display:flex;gap:6px;
     align-items:center;opacity:.45;transition:opacity .15s}
   .card:hover .chart-tools{opacity:1}
+  .ovl-chart .chart-tools{right:12px;opacity:1}   /* no expand button in the overlay */
   .chart-tools .seg button{padding:3px 9px;font-size:11px}
   .ctbtn{cursor:pointer;font-size:12px;line-height:1;padding:4px 8px;border-radius:7px;
     background:var(--card-2);border:1px solid var(--line-2);color:var(--faint)}
@@ -580,6 +584,7 @@ Chart.register({
 const ZOOM_OK = !!(window.Chart && Chart.defaults.plugins && Chart.defaults.plugins.zoom
     && Chart.defaults.plugins.zoom.zoom);
 let NAVMODE = "zoom";
+let ovlChartInst = null;   // the chart rebuilt inside the detail overlay (or null)
 try{ const m=localStorage.getItem("ts-navmode"); if(m==="pan"||m==="zoom") NAVMODE=m; }catch(e){}
 if (ZOOM_OK){
   const z = Chart.defaults.plugins.zoom;
@@ -592,20 +597,32 @@ if (ZOOM_OK){
   // can't zoom out past the original extent (so pan stays at the current zoom level).
   z.limits = {x:{min:"original", max:"original"}};
 }
+// Apply the current NAVMODE to ONE chart. The zoom plugin reads each chart's own
+// options.plugins.zoom at event time — mutating Chart.defaults after a chart exists
+// does NOT reach it (this is why drag-pan looked dead). So set the flags per chart.
+function setChartNav(c){
+  if(!c || c.config.type==="doughnut" || c.config.type==="pie") return;
+  // Chart.js resolved Chart.defaults.plugins.zoom into c.options at creation, so the
+  // {zoom:{wheel,drag},pan,limits,mode} structure already exists here. Only flip the
+  // enabled booleans on it — creating new nested objects (or reassigning .limits)
+  // corrupts the plugin's state and sends chart.update() into infinite recursion.
+  const z = c.options.plugins && c.options.plugins.zoom;
+  if(z && z.zoom && z.pan){
+    const pan=NAVMODE==="pan";
+    z.zoom.wheel.enabled=!pan;   // plugin wheel = zoom only; pan-on-wheel is custom (below)
+    z.zoom.drag.enabled =!pan;   // zoom mode: drag draws a window, then zooms into it
+    z.pan.enabled       =pan;    // pan mode: drag translates within the current zoom
+  }
+  c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
+}
 function applyNavMode(){
-  if (ZOOM_OK){
-    const z = Chart.defaults.plugins.zoom;
-    const pan = NAVMODE==="pan";
-    z.zoom.wheel.enabled = !pan;   // plugin wheel = zoom only; pan-on-wheel is custom (below)
-    z.zoom.drag.enabled  = !pan;   // zoom mode: drag draws a window, then zooms into it
-    z.pan.enabled        = pan;    // pan mode: drag translates within the current zoom
+  if (ZOOM_OK){   // also keep defaults in sync for any chart created later
+    const z = Chart.defaults.plugins.zoom, pan = NAVMODE==="pan";
+    z.zoom.wheel.enabled=!pan; z.zoom.drag.enabled=!pan; z.pan.enabled=pan;
   }
-  for(const k in charts){ const c=charts[k];
-    if(c.config.type==="doughnut"||c.config.type==="pie") continue;
-    c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
-    c.update("none");
-  }
-  // sync every Zoom/Pan toggle (sidebar + per-chart toolbars)
+  for(const k in charts){ const c=charts[k]; setChartNav(c); c.update("none"); }
+  if(ovlChartInst){ setChartNav(ovlChartInst); ovlChartInst.update("none"); }
+  // sync every Zoom/Pan toggle (sidebar + per-chart toolbars + overlay toolbar)
   document.querySelectorAll(".nm-zoom").forEach(b=>b.classList.toggle("on",NAVMODE==="zoom"));
   document.querySelectorAll(".nm-pan").forEach(b=>b.classList.toggle("on",NAVMODE==="pan"));
   try{ localStorage.setItem("ts-navmode",NAVMODE); }catch(e){}
@@ -983,6 +1000,9 @@ function render(){
       `<td class="n">${toks((r.cache_read||0)+(r.cache_create||0))}</td>`+
       `<td class="n">${r.context_pct??""}%</td></tr>`;
   }).join("");
+  // draw() replaces each chart's options on a live refresh, dropping the per-chart
+  // zoom/pan flags — reassert them (no-op cost when nothing changed).
+  if(typeof applyNavMode==="function") applyNavMode();
 }
 
 [selP,selM,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
@@ -1126,7 +1146,6 @@ const selectEl=el=>{ document.querySelectorAll(".kpi.sel,.card.sel").forEach(s=>
 // live canvas doesn't work: Chart.js keeps measuring its original container, so the
 // moved chart stays the card's small height. A fresh instance is created with the
 // overlay as its container, so it sizes to the big container correctly.)
-let ovlChartInst=null;
 function hideOvlChart(){
   if(ovlChartInst){ try{ovlChartInst.destroy();}catch(e){} ovlChartInst=null; }
   const oc=$("#ovlChart"); oc.classList.remove("show"); oc.innerHTML="";
@@ -1138,6 +1157,22 @@ function showOvlChart(sel){
   const data={labels:cfg.data.labels, datasets:cfg.data.datasets.map(d=>Object.assign({},d))};
   const options=Object.assign({}, cfg.options, {responsive:true, maintainAspectRatio:false});
   ovlChartInst=new Chart(oc.querySelector("canvas"), {type:cfg.type, data, options});
+  // the expanded chart gets the same nav features as the cards: index hover &
+  // crosshair come from global Chart config; add the Zoom/Pan + reset toolbar here.
+  if(ovlChartInst.config.type!=="doughnut" && ovlChartInst.config.type!=="pie"){
+    const tools=document.createElement("div"); tools.className="chart-tools";
+    tools.innerHTML=
+      '<span class="seg"><button class="nm-zoom" title="Wheel & drag zoom into a window">Zoom</button>'+
+      '<button class="nm-pan" title="Wheel & drag pan at the current zoom">Pan</button></span>'+
+      '<button class="ctbtn ctreset" title="Reset zoom (or double-click the chart)">⟲</button>';
+    tools.querySelector(".nm-zoom").addEventListener("click",()=>setNavMode("zoom"));
+    tools.querySelector(".nm-pan").addEventListener("click",()=>setNavMode("pan"));
+    tools.querySelector(".ctreset").addEventListener("click",()=>{ if(ovlChartInst&&ovlChartInst.resetZoom) ovlChartInst.resetZoom(); });
+    oc.appendChild(tools);
+    setChartNav(ovlChartInst); ovlChartInst.update("none");
+    document.querySelectorAll(".nm-zoom").forEach(b=>b.classList.toggle("on",NAVMODE==="zoom"));
+    document.querySelectorAll(".nm-pan").forEach(b=>b.classList.toggle("on",NAVMODE==="pan"));
+  }
 }
 function closeOvl(){ ovl.classList.remove("open"); hideOvlChart();
   document.querySelectorAll(".kpi.sel,.card.sel").forEach(el=>el.classList.remove("sel")); }
