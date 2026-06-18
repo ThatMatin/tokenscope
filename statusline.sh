@@ -189,4 +189,9 @@ if [ -n "$RTK_SAVED" ]; then
   USAGE_LINE="${USAGE_LINE}${GENERATED}rtk ↓${RTK_PCT}% ${RTK_SAVED}${RESET}"
 fi
 [ -n "$USAGE_LINE" ] && echo -e "$USAGE_LINE"
+
+# Optional personal overlay: add your own segments/lines without forking this
+# file (e.g. a session-topic summary). It's sourced in this shell, so it can use
+# any variable defined above (TRANSCRIPT, the color vars, etc.). Absent by default.
+[ -f "$HOME/.claude/statusline-overlay.sh" ] && . "$HOME/.claude/statusline-overlay.sh"
 exit 0
