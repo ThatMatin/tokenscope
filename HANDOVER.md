@@ -9,15 +9,16 @@ _Last updated: 2026-06-18._
 
 ## TL;DR
 
-`tokenscope` is a local-only observability toolkit for Claude Code (status line +
+`tokenscope` is a local (no-network) observability toolkit for Claude Code (status line +
 `live`/`grid`/`report`/`dashboard`/`serve` CLI over `tokcore.py`). Repo lives at
-`~/Projects/tokenscope` (git, local-only, no remote). The live status line is a
-**symlink**: `~/.claude/statusline.sh → repo/statusline.sh`. Runtime state is under
-`~/.claude/` (never in the repo).
+`~/Projects/tokenscope` and is pushed to GitHub (`github.com/ThatMatin/tokenscope`,
+remote `origin`, branch `main`). "Local" refers to the runtime — all data stays under
+`~/.claude/` and nothing phones home; the repo itself is on GitHub. The live status
+line is a **symlink**: `~/.claude/statusline.sh → repo/statusline.sh`.
 
 ## State of the tree
 
-Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
+Clean, all committed and **pushed** (branch `main` tracks `origin/main`). Recent arc:
 - unified CLI + `tokcore.py`; `grid`, `serve`; tokstats folded in (shims at
   `~/.claude/tokstats*.py`).
 - status line: `today` daily-slice of the 7d limit; hardened rtk-cache parsing;
@@ -150,6 +151,15 @@ overlay cleaned on close.
 
 Also: `python3 -c "import ast; ast.parse(open('dashboard.py').read())"` and
 `node --check` on the extracted inline `<script>` for fast syntax checks.
+
+## Next session: README update
+
+The **next session is a README pass.** `README.md` predates the big dashboard arc
+(sidebar IA + search, zoom/pan modes and the on-graph toolbar, crosshair/index hover,
+session order-numbering, the live `serve` view) — it likely undersells or omits these.
+Review `README.md` against the current `dashboard.py`/`serve.py` feature set and the
+RUNBOOK, refresh the feature tour + screenshots/usage, and keep it in sync with what
+shipped. (Repo is now on GitHub, so the README is also the public landing page.)
 
 ## Suggested next steps / open ideas (not started)
 
