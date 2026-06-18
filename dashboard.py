@@ -135,6 +135,37 @@ HTML = r"""<!doctype html>
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 var(--font);
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  /* App shell: a sticky left sidebar (brand · search · section nav · theme) and a
+     scrolling main column. The overlay (#entryOvl) stays outside the shell. */
+  .app{display:flex;align-items:flex-start}
+  .main{flex:1;min-width:0}
+  .sidebar{flex:0 0 232px;width:232px;position:sticky;top:0;height:100vh;overflow-y:auto;
+    border-right:1px solid var(--line);background:var(--bg-soft);
+    padding:20px 16px;display:flex;flex-direction:column;gap:16px}
+  .sb-brand{font-size:15px;font-weight:600;letter-spacing:-.01em;padding:0 6px}
+  .sb-brand .z{color:var(--accent)}
+  .sb-search{position:relative}
+  .sb-search input{width:100%;padding:8px 10px 8px 30px}
+  .sb-search::before{content:"⌕";position:absolute;left:10px;top:50%;transform:translateY(-50%);
+    color:var(--faint);font-size:14px;pointer-events:none}
+  .sb-nav{display:flex;flex-direction:column;gap:2px}
+  .sb-nav .navlink{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;
+    color:var(--dim);font-size:13px;text-decoration:none;cursor:pointer;border:1px solid transparent}
+  .sb-nav .navlink:hover{background:var(--card-2);color:var(--txt)}
+  .sb-nav .navlink.active{background:var(--card-2);color:var(--txt);border-color:var(--line-2)}
+  .sb-nav .navlink .nd{width:7px;height:7px;border-radius:2px;background:var(--faint);flex:0 0 auto}
+  .sb-nav .navlink.active .nd{background:var(--accent)}
+  .sb-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding:0 4px}
+  .sb-foot label{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+  .seg button{border:none;border-radius:0;background:transparent;padding:5px 12px;font-size:12px}
+  .seg button.on{background:var(--accent);color:#0B0E14;font-weight:600}
+  .seg button:not(.on):hover{color:var(--accent)}
+  .wrap [id^="sec-"]{scroll-margin-top:16px}
+  @media(max-width:820px){.app{flex-direction:column}
+    .sidebar{flex:none;width:100%;height:auto;position:static;flex-direction:row;
+      flex-wrap:wrap;align-items:center;border-right:none;border-bottom:1px solid var(--line)}
+    .sb-nav{flex-direction:row;flex-wrap:wrap} .sb-foot{margin:0}}
   header{padding:22px 30px;border-bottom:1px solid var(--line);
     display:flex;align-items:center;gap:16px;flex-wrap:wrap;
     background:linear-gradient(180deg,var(--bg-soft),var(--bg))}
@@ -299,8 +330,33 @@ HTML = r"""<!doctype html>
 </style>
 </head>
 <body>
+<div class="app">
+<aside class="sidebar">
+  <div class="sb-brand"><span class="z">token</span>scope</div>
+  <div class="sb-search"><input id="navSearch" type="search" placeholder="Search sessions…" autocomplete="off" title="Filter the Active sessions list by name or project"></div>
+  <nav class="sb-nav" id="navList">
+    <a class="navlink" data-target="sec-live"><span class="nd"></span>Live &amp; sessions</a>
+    <a class="navlink" data-target="sec-overview"><span class="nd"></span>Overview</a>
+    <a class="navlink" data-target="sec-spend"><span class="nd"></span>Spend</a>
+    <a class="navlink" data-target="sec-tokens"><span class="nd"></span>Tokens &amp; cache</a>
+    <a class="navlink" data-target="sec-context"><span class="nd"></span>Context</a>
+    <a class="navlink" data-target="sec-activity"><span class="nd"></span>Activity</a>
+    <a class="navlink" data-target="sec-limits"><span class="nd"></span>Usage limits</a>
+    <a class="navlink" data-target="sec-top"><span class="nd"></span>Top turns</a>
+  </nav>
+  <div class="sb-foot">
+    <div><label>Chart scroll</label><br>
+      <span class="seg" id="navModeSeg">
+        <button id="navZoom" class="on" title="Wheel scroll & drag zoom into a chart">Zoom</button>
+        <button id="navPan" title="Wheel scroll & drag move across a zoomed chart">Pan</button>
+      </span></div>
+    <div><label>Theme</label><br>
+      <select id="themeSel"><option value="dark">Dark</option><option value="light">Light</option>
+      <option value="yellowish">Yellowish</option></select></div>
+  </div>
+</aside>
+<div class="main">
 <header>
-  <h1><span class="z">token</span>scope · Claude Code spend</h1>
   <span id="liveBadge">live</span>
   <div class="controls">
     <span><label>Project</label><select id="fProj"></select></span>
@@ -309,13 +365,10 @@ HTML = r"""<!doctype html>
     <span><label>To</label><input type="date" id="fTo"></span>
     <button id="exportBtn" title="Download the filtered turns as CSV">Export CSV</button>
     <span id="pollWrap" style="display:none"><label title="How often the dashboard re-polls live data">Refresh</label><select id="pollSel"></select></span>
-    <span><label>Theme</label><select id="themeSel">
-      <option value="dark">Dark</option><option value="light">Light</option>
-      <option value="yellowish">Yellowish</option></select></span>
   </div>
 </header>
 <div class="wrap">
-  <div class="section">Live <span class="sctl" style="display:inline-flex;align-items:center;gap:5px"><label style="margin:0">recent ≤</label><input type="number" id="recentMin" min="1" max="60" style="width:48px" title="A just-idle session stays amber ('recent') for this many minutes after its last activity"> min</span> <span class="sctl pop">
+  <div class="section" id="sec-live">Live <span class="sctl" style="display:inline-flex;align-items:center;gap:5px"><label style="margin:0">recent ≤</label><input type="number" id="recentMin" min="1" max="60" style="width:48px" title="A just-idle session stays amber ('recent') for this many minutes after its last activity"> min</span> <span class="sctl pop">
       <button id="alertsBtn" title="Notification sounds — rings that play when a session needs you. Click to configure.">🔔 Alerts</button>
       <div class="pop-panel" id="alertsPanel">
         <h3>Notification sounds</h3>
@@ -363,10 +416,10 @@ HTML = r"""<!doctype html>
     <div class="sess-note" id="sessNote"></div>
   </div>
 
-  <div class="section">Overview <span class="n">· selected range · click a card for detail</span></div>
+  <div class="section" id="sec-overview">Overview <span class="n">· selected range · click a card for detail</span></div>
   <div class="kpis" id="kpis"></div>
 
-  <div class="section">Spend <span class="n">· click a chart title for detail</span> <span class="sctl pop">
+  <div class="section" id="sec-spend">Spend <span class="n">· click a chart title for detail</span> <span class="sctl pop">
       <button id="chartBtn" title="Chart inspection options — markers, exact lines, gridlines, drag-to-zoom.">⚙ Chart</button>
       <div class="pop-panel" id="chartPanel">
         <h3>Chart options</h3>
@@ -391,18 +444,18 @@ HTML = r"""<!doctype html>
     <div class="card" data-entry="model"><h2 class="exp">Spend by model</h2><canvas id="cModel"></canvas></div>
   </div>
 
-  <div class="section">Tokens &amp; cache</div>
+  <div class="section" id="sec-tokens">Tokens &amp; cache</div>
   <div class="grid">
     <div class="card"><h2 data-desc="Cache read vs cache write tokens per day — usually the bulk of traffic, and far cheaper than fresh input.">Cache tokens per day (read vs. write)</h2><canvas id="cCache"></canvas></div>
     <div class="card"><h2 data-desc="Daily cache-hit ratio: cache_read / (read + write). Higher = more of your context is served cheaply from cache.">Cache-hit % per day</h2><canvas id="cHit"></canvas></div>
   </div>
 
-  <div class="section">Context window</div>
+  <div class="section" id="sec-context">Context window</div>
   <div class="grid">
     <div class="card full"><h2 data-desc="Context-window fill % at each turn. Red markers are compactions (turn_tokens<0) — where context was trimmed/cleared.">Context fill &amp; compactions</h2><canvas id="cCtx"></canvas></div>
   </div>
 
-  <div class="section">Activity</div>
+  <div class="section" id="sec-activity">Activity</div>
   <div class="grid">
     <div class="card full"><h2 data-desc="Spend by hour-of-day and weekday (local time) — darker = more cost. Reveals when your usage concentrates.">Activity heatmap (spend by hour × weekday)</h2>
       <div id="heat" class="heat"></div>
@@ -410,13 +463,13 @@ HTML = r"""<!doctype html>
     </div>
   </div>
 
-  <div class="section">Usage limits over time</div>
+  <div class="section" id="sec-limits">Usage limits over time</div>
   <div class="grid">
     <div class="card full"><h2 data-desc="Total cost in the trailing 5 hours at each turn — a proxy for the 5h subscription usage limit.">5-hour rolling window (usage-limit proxy)</h2><canvas id="cRoll"></canvas></div>
     <div class="card full"><h2 data-desc="The 5h and 7d rate-limit usage % as recorded at each turn (only turns that carried the fields).">Rate-limit burn over time (5h / 7d %)</h2><canvas id="cLimits"></canvas></div>
   </div>
 
-  <div class="section">Top turns</div>
+  <div class="section" id="sec-top">Top turns</div>
   <div class="grid">
     <div class="card full"><h2 data-desc="The most expensive individual turns in the selected range.">Top 12 turns by cost</h2>
       <table id="tTop"><thead><tr><th>When</th><th>Project</th><th>Model</th><th class="n">Cost</th><th class="n">Tokens</th><th class="n">Cache</th><th class="n">Ctx</th></tr></thead><tbody></tbody></table>
@@ -429,6 +482,8 @@ HTML = r"""<!doctype html>
     <span class="dot" style="background:var(--border)"></span><b>5h window</b> — exact values, heuristic turn-slicing
     <br>Generated __GEN__ · __N__ turns · data: ~/.claude/turn-log.jsonl
   </div>
+</div>
+</div>
 </div>
 <div class="ovl" id="entryOvl">
   <div class="ovl-card">
@@ -515,21 +570,55 @@ Chart.register({
     b.style.display = chart.isZoomedOrPanned() ? "block" : "none";
   }
 });
-// Drag-to-zoom for fine inspection (chartjs-plugin-zoom, if it loaded).
-// Drag a range on the x-axis to zoom; wheel to zoom; double-click any chart to reset.
+// Two navigation modes (chartjs-plugin-zoom, if it loaded):
+//   zoom — wheel scroll & drag zoom INTO a chart (default)
+//   pan  — wheel scroll & drag MOVE across an already-zoomed chart
+// The sidebar "Chart scroll" toggle flips NAVMODE; applyNavMode() rewrites the
+// plugin's wheel/drag/pan flags and the canvas cursor to match.
 // IMPORTANT: merge into the plugin's own defaults — overwriting the whole object
 // drops its `pan`/`limits` keys, which the plugin then reads → a TypeError that
 // aborts chart rendering. Mutate sub-keys only.
-if (window.Chart && Chart.defaults.plugins && Chart.defaults.plugins.zoom
-    && Chart.defaults.plugins.zoom.zoom){
-  const z = Chart.defaults.plugins.zoom.zoom;
-  z.wheel.enabled = true;
-  z.drag.enabled = true;
-  z.drag.backgroundColor = "rgba(91,185,214,.18)";
-  z.drag.borderColor = "#5BB9D6";
-  z.drag.borderWidth = 1;
-  z.mode = "x";
+const ZOOM_OK = !!(window.Chart && Chart.defaults.plugins && Chart.defaults.plugins.zoom
+    && Chart.defaults.plugins.zoom.zoom);
+let NAVMODE = "zoom";
+try{ const m=localStorage.getItem("ts-navmode"); if(m==="pan"||m==="zoom") NAVMODE=m; }catch(e){}
+if (ZOOM_OK){
+  const z = Chart.defaults.plugins.zoom;
+  z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";
+  z.zoom.drag.borderColor = "#5BB9D6";
+  z.zoom.drag.borderWidth = 1;
+  z.zoom.mode = "x";
+  z.pan.mode = "x";
 }
+function applyNavMode(){
+  if (ZOOM_OK){
+    const z = Chart.defaults.plugins.zoom;
+    const pan = NAVMODE==="pan";
+    z.zoom.wheel.enabled = !pan;   // plugin wheel = zoom only; pan-on-wheel is custom (below)
+    z.zoom.drag.enabled  = !pan;
+    z.pan.enabled        = pan;
+  }
+  for(const k in charts){ const c=charts[k];
+    if(c.config.type==="doughnut"||c.config.type==="pie") continue;
+    c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
+    c.update("none");
+  }
+  const zb=$("#navZoom"), pb=$("#navPan");
+  if(zb&&pb){ zb.classList.toggle("on",NAVMODE==="zoom"); pb.classList.toggle("on",NAVMODE==="pan"); }
+  try{ localStorage.setItem("ts-navmode",NAVMODE); }catch(e){}
+}
+function setNavMode(m){ NAVMODE=m; applyNavMode(); }
+// The zoom plugin only zooms on wheel; in pan mode we translate wheel deltas into
+// a horizontal pan ourselves so "scroll" means the same gesture the toggle promises.
+document.addEventListener("wheel", e=>{
+  if(NAVMODE!=="pan" || !ZOOM_OK) return;
+  const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return;
+  const c=Chart.getChart(cv); if(!c || !c.pan) return;
+  if(c.config.type==="doughnut"||c.config.type==="pie") return;
+  e.preventDefault();
+  const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  c.pan({x:-d}, undefined, "default");
+}, {passive:false});
 document.addEventListener("dblclick", e=>{
   if(e.target && e.target.tagName==="CANVAS"){
     const c=Chart.getChart(e.target); if(c && c.resetZoom) c.resetZoom();
@@ -601,12 +690,16 @@ let RECENT_SECS=120; try{const r=localStorage.getItem("ts-recent"); if(r)RECENT_
 const sessState=s=>(s.status==="busy"||s.status==="waiting") ? "active"
                   : ((s.age||0) < RECENT_SECS ? "recent" : "idle");
 const STRANK={active:0,recent:1,idle:2};
+let SESS_Q = "";   // sidebar search: substring filter over session name + project
 function renderSessions(){
   const card = $("#sessCard");
   if (!SESSIONS.length){ card.style.display = "none"; return; }
   card.style.display = "";
   // active first, then recent, then idle; within a group, freshest first
-  const rows=[...SESSIONS].sort((a,b)=>STRANK[sessState(a)]-STRANK[sessState(b)] || (a.age||0)-(b.age||0));
+  const q = SESS_Q.trim().toLowerCase();
+  const rows=[...SESSIONS]
+    .filter(s=> !q || ((s.name||"")+" "+(s.project||"")).toLowerCase().includes(q))
+    .sort((a,b)=>STRANK[sessState(a)]-STRANK[sessState(b)] || (a.age||0)-(b.age||0));
   $("#tSess tbody").innerHTML = rows.map(s=>{
     const st=sessState(s), pillc = st==="active" ? "" : st;
     const ctxc = s.ctx<60?COL.exact:s.ctx<85?COL.partial:COL.red;
@@ -621,7 +714,7 @@ function renderSessions(){
       `<td class="n">${ctxCell}</td>`+
       `<td class="n">${hitCell}</td><td class="n">${ioCell}</td>`+
       `<td class="n">${costCell}</td><td class="n">${fmtAge(s.age)} ago</td></tr>`;
-  }).join("");
+  }).join("") || `<tr><td colspan="9" class="muted" style="padding:14px">No sessions match “${SESS_Q}”.</td></tr>`;
   // parallel-projects summary: counts + one chip per project with live (active/recent) work
   const nA=SESSIONS.filter(s=>sessState(s)==="active").length;
   const nR=SESSIONS.filter(s=>sessState(s)==="recent").length;
@@ -781,7 +874,7 @@ function render(){
     data:{labels:pe.map(e=>e[0]), datasets:[{data:pe.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
     options:{cutout:"62%", interaction:{mode:"nearest",intersect:true},
-      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}},pan:{enabled:false}},
       legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{mode:"nearest",intersect:true,callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
@@ -792,7 +885,7 @@ function render(){
     data:{labels:me.map(e=>modelShort(e[0])), datasets:[{data:me.map(e=>e[1]),
       backgroundColor:PALETTE, borderColor:"#13171F", borderWidth:2}]},
     options:{cutout:"62%", interaction:{mode:"nearest",intersect:true},
-      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}}},
+      plugins:{zoom:{zoom:{wheel:{enabled:false},drag:{enabled:false}},pan:{enabled:false}},
       legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:10}},
       tooltip:{mode:"nearest",intersect:true,callbacks:{label:c=>c.label+": "+money(c.parsed)}}}}});
 
@@ -1097,7 +1190,37 @@ function wirePop(btn,panel){
 wirePop("#alertsBtn","#alertsPanel"); wirePop("#chartBtn","#chartPanel");
 document.addEventListener("click",()=>document.querySelectorAll(".pop-panel").forEach(p=>p.classList.remove("open")));
 
-function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); }
+// ---- sidebar: section nav (click + scroll-spy), session search, chart-scroll mode
+function initSidebar(){
+  const links=[...document.querySelectorAll(".sb-nav .navlink")];
+  links.forEach(a=>a.addEventListener("click",ev=>{
+    ev.preventDefault();
+    const el=document.getElementById(a.dataset.target);
+    if(el) el.scrollIntoView({behavior:"smooth",block:"start"});
+  }));
+  // scroll-spy: highlight the nav link of the section nearest the top of the viewport
+  const byId={}; links.forEach(a=>byId[a.dataset.target]=a);
+  const targets=links.map(a=>document.getElementById(a.dataset.target)).filter(Boolean);
+  if("IntersectionObserver" in window && targets.length){
+    let visible=new Set();
+    const io=new IntersectionObserver(es=>{
+      es.forEach(e=>{ if(e.isIntersecting) visible.add(e.target.id); else visible.delete(e.target.id); });
+      // pick the topmost visible section, else leave the last active one
+      const top=targets.find(t=>visible.has(t.id));
+      if(top){ links.forEach(a=>a.classList.toggle("active", a.dataset.target===top.id)); }
+    },{rootMargin:"-8% 0px -80% 0px",threshold:0});
+    targets.forEach(t=>io.observe(t));
+  }
+  // session search
+  const sb=$("#navSearch");
+  if(sb) sb.addEventListener("input",()=>{ SESS_Q=sb.value; renderSessions(); });
+  // chart-scroll mode (zoom / pan)
+  const zb=$("#navZoom"), pb=$("#navPan");
+  if(zb) zb.addEventListener("click",()=>setNavMode("zoom"));
+  if(pb) pb.addEventListener("click",()=>setNavMode("pan"));
+}
+
+function boot(){ applyChartOpts(); applyChartTheme(); renderLive(); populateProjects(); initDates(); renderSessions(); render(); initSidebar(); applyNavMode(); }
 boot();
 
 // "recently" threshold control (re-render sessions on change)

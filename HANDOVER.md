@@ -23,6 +23,17 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
 - status line: `today` daily-slice of the 7d limit; hardened rtk-cache parsing;
   optional personal overlay (`~/.claude/statusline-overlay.sh` — session-topic
   summary, kept out of the repo because it calls the `claude` CLI).
+- dashboard IA: **sidebar shell** (`.app` = sticky `.sidebar` + scrolling `.main`).
+  Sidebar holds brand, **session search** (`#navSearch` → `SESS_Q`, filters the
+  Active-sessions table by name/project), **section nav** (`.navlink` → `id="sec-*"`
+  on each `.section`, smooth-scroll + IntersectionObserver scroll-spy), and a foot
+  with the **Chart scroll** Zoom/Pan toggle + Theme select (both moved out of the
+  old top header; header is now just filters + live badge).
+- dashboard chart **navigation modes**: `NAVMODE` (`zoom`|`pan`, persisted
+  `ts-navmode`). Zoom = wheel & drag zoom in; Pan = wheel & drag move across a
+  zoomed chart. `applyNavMode()` flips the plugin's wheel/drag/pan flags + canvas
+  cursor (crosshair vs grab). The zoom plugin only zooms on wheel, so **pan-on-wheel
+  is a custom `wheel` listener** that calls `chart.pan({x:-delta})`.
 - dashboard chart navigation: global **index-mode hover** (`intersect:false`) so you
   read the value at the nearest x — all series at once — by hovering anywhere, not
   on an invisible radius-0 point; a faint dashed **crosshair** guide at the hovered
@@ -66,6 +77,10 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    doughnut (proj/model) and the scatter must set `interaction:{mode:"nearest",
    intersect:true}` AND the same on their `tooltip`, or hovering highlights every
    slice/point. The crosshair plugin already skips doughnut/pie by type.
+8. **Pan-on-wheel is custom, not the zoom plugin.** chartjs-plugin-zoom only zooms
+   on wheel; in pan mode a `wheel` listener calls `chart.pan({x:-delta})`. Doughnuts
+   set `pan:{enabled:false}` in their per-chart config so the global `NAVMODE` toggle
+   (which mutates `Chart.defaults.plugins.zoom.pan.enabled`) never pans them.
 
 ## How to verify dashboard changes (USE THIS — don't eyeball)
 
