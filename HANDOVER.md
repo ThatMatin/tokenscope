@@ -48,6 +48,14 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
 5. Settings persist only in `serve` mode (POST `/alarm`; localStorage for theme /
    chart-opts / refresh / recent-threshold). The static `dashboard` export is
    view-only for the alarm controls.
+6. **Mini bar fills (`.ctxbar`) must be `display:block`, not `inline-block`.** As
+   inline-block, the track's `line-height` pushes the fill below the 6px track box
+   and `overflow:hidden` on `.ctxtrack` clips it away — every bar then shows only
+   the empty gray rail (fill is in the DOM with correct width/colour, just not
+   painted; `getComputedStyle` lies, so verify with a screenshot, not the dump).
+   Session-table tracks also need the trailing `${ctx}%` in a fixed-width `.ctxpct`
+   span — the right-aligned cell otherwise shifts each track's left edge by the
+   digit-width of the number, so tracks don't line up. (Fixed 2026-06-18.)
 
 ## How to verify dashboard changes (USE THIS — don't eyeball)
 
