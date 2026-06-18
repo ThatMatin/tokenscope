@@ -595,7 +595,8 @@ if (ZOOM_OK){
   z.pan.mode = "x";
   // Keep zoom & pan inside the data — panning can't wander into empty space and you
   // can't zoom out past the original extent (so pan stays at the current zoom level).
-  z.limits = {x:{min:"original", max:"original"}};
+  // y bounds matter only for the scatter (the one 2D plot); ignored by the x-only charts.
+  z.limits = {x:{min:"original", max:"original"}, y:{min:"original", max:"original"}};
 }
 // Apply the current NAVMODE to ONE chart. The zoom plugin reads each chart's own
 // options.plugins.zoom at event time — mutating Chart.defaults after a chart exists
@@ -639,6 +640,37 @@ function chartFromEvent(e){
   if(c.config.type==="doughnut"||c.config.type==="pie") return null;
   return c;
 }
+// Which axes a chart navigates: the cost-vs-tokens scatter is the one true 2D plot,
+// so it zooms/pans in BOTH x and y; every other chart is a time series → x only.
+const navAxes = c => c.config.type==="scatter" ? ["x","y"] : ["x"];
+// Custom focal-point zoom by setting each scale's bounds directly (via the plugin's
+// zoomScale, so reset still works). Done per axis so it's SMOOTH on the category-axis
+// bar charts too — chart.zoom() snaps those to whole categories, which is why the
+// histogram zoomed ~6x faster than the line charts.
+function wheelZoom(c, factor, px, py){
+  navAxes(c).forEach(a=>{
+    const s=c.scales[a]; if(!s) return;
+    const fv=s.getValueForPixel(a==="x"?px:py);
+    if(fv==null || !isFinite(fv)) return;
+    if(s.type==="category"){
+      // Discrete axis (the day-bar charts): fractional bounds get rounded away, so
+      // chart.zoom() snapped by whole categories — that's the "fast histogram" zoom.
+      // Step exactly ONE category per wheel tick (in: drop the far end; out: grow both).
+      const n=(c.data.labels||[]).length-1; if(n<=0) return;
+      const idx=Math.max(s.min,Math.min(s.max,Math.round(fv)));
+      let nmin=s.min, nmax=s.max;
+      if(factor>1){                                   // zoom in
+        if(nmax-nmin<=1) return;                      // already a single bar
+        if(idx-s.min >= s.max-idx) nmin=s.min+1; else nmax=s.max-1;
+      } else {                                        // zoom out
+        nmin=Math.max(0,s.min-1); nmax=Math.min(n,s.max+1);
+      }
+      c.zoomScale(a, {min:nmin, max:nmax}, "none");
+    } else {
+      c.zoomScale(a, {min: fv-(fv-s.min)/factor, max: fv+(s.max-fv)/factor}, "none");
+    }
+  });
+}
 document.addEventListener("wheel", e=>{
   if(!ZOOM_OK) return;
   const c=chartFromEvent(e); if(!c) return;
@@ -646,29 +678,31 @@ document.addEventListener("wheel", e=>{
   if(NAVMODE==="pan"){
     if(!c.pan) return;
     const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    rubberPan(c, -d);
+    rubberPan(c, -d, 0);
     return;
   }
-  if(!c.zoom) return;
+  if(!c.zoomScale) return;
   const mag = Math.max(-WHEEL_ZOOM_CAP, Math.min(WHEEL_ZOOM_CAP, e.deltaY*WHEEL_ZOOM_STEP));
-  const factor = 1 - mag;   // deltaY<0 (scroll up) → factor>1 → zoom in
   const rect = c.canvas.getBoundingClientRect();
-  c.zoom({x:factor, focalPoint:{x:e.clientX-rect.left, y:e.clientY-rect.top}}, "none");
+  wheelZoom(c, 1-mag, e.clientX-rect.left, e.clientY-rect.top);   // deltaY<0 → factor>1 → zoom in
 }, {passive:false});
 
-// Click-and-drag pan + rubber-band. The plugin's mouse pan needs Hammer.js (not
-// bundled), so we drive it via chart.pan() (keeps the plugin's zoom state, so reset
-// works). When the pan is clamped at the data edge — including at full zoom, where
-// there's nothing to pan — the unconsumed drag becomes a damped CSS translate that
-// springs back on release: a subtle rubber-band. It never touches the scales, so
-// panning can't change the zoom level.
+// Click-and-drag pan. The plugin's mouse pan needs Hammer.js (not bundled), so we
+// drive it via chart.pan() (keeps the plugin's zoom state, so reset works). When the
+// chart is zoomed, hitting a data edge just clamps (pan stops) — smooth, no reset.
+// ONLY at full extent (nothing to pan) does the drag become a damped CSS translate
+// that springs back on release — the subtle rubber-band. It never touches the scales.
 let _panDrag=null;
-function rubberPan(c, dx){
-  const before=c.scales.x.min;
-  c.pan({x:dx}, undefined, "default");   // x-only, matches z.pan.mode
+function rubberPan(c, dx, dy){
+  if(c.isZoomedOrPanned && c.isZoomedOrPanned()){
+    // zoomed in → real pan; clamps smoothly at the edges
+    c.pan(c.config.type==="scatter" ? {x:dx,y:dy} : {x:dx}, undefined, "default");
+    if(_panDrag && _panDrag.c===c && _panDrag.over){ _panDrag.over=0; c.canvas.style.transform="translateX(0px)"; }
+    return;
+  }
+  // full extent → rubber-band (x), no scale change
   if(_panDrag && _panDrag.c===c){
-    if(c.scales.x.min===before) _panDrag.over += dx;   // clamped → accumulate overscroll
-    else _panDrag.over = 0;                            // actually moved → no rubber-band
+    _panDrag.over += dx;
     const o=_panDrag.over, rub=Math.sign(o)*Math.min(28, Math.abs(o)*0.25);
     c.canvas.style.transform = "translateX("+rub+"px)";
   }
@@ -676,13 +710,14 @@ function rubberPan(c, dx){
 document.addEventListener("mousedown", e=>{
   if(NAVMODE!=="pan" || !ZOOM_OK) return;
   const c=chartFromEvent(e); if(!c || !c.pan) return;
-  _panDrag={c, x:e.clientX, over:0};
+  _panDrag={c, x:e.clientX, y:e.clientY, over:0};
   c.canvas.style.transition="none"; c.canvas.style.cursor="grabbing"; e.preventDefault();
 });
 document.addEventListener("mousemove", e=>{
   if(!_panDrag) return;
-  const dx=e.clientX-_panDrag.x; _panDrag.x=e.clientX;
-  rubberPan(_panDrag.c, dx);
+  const dx=e.clientX-_panDrag.x, dy=e.clientY-_panDrag.y;
+  _panDrag.x=e.clientX; _panDrag.y=e.clientY;
+  rubberPan(_panDrag.c, dx, dy);
 });
 document.addEventListener("mouseup", ()=>{
   if(!_panDrag) return;
@@ -1036,7 +1071,9 @@ function render(){
   draw("scatter", "#cScatter", {type:"scatter",
     data:{datasets:[{data:sdata, backgroundColor:sdata.map(d=>tcolor(d.t)), pointRadius:3, pointHoverRadius:5}]},
     options:{interaction:{mode:"nearest",intersect:true},
-      plugins:{legend:{display:false},tooltip:{mode:"nearest",intersect:true,callbacks:{
+      plugins:{legend:{display:false},
+      zoom:{zoom:{mode:"xy"},pan:{mode:"xy"}},   // 2D plot: drag-zoom box & pan both axes
+      tooltip:{mode:"nearest",intersect:true,callbacks:{
       title:i=>new Date(i[0].raw.t).toLocaleString(),
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
       scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
