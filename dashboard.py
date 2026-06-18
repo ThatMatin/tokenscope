@@ -562,8 +562,15 @@ Chart.defaults.plugins.tooltip.intersect = false;
 // with its axis label. Cartesian charts only (a vertical line on a doughnut is junk).
 Chart.register({
   id:"crosshair",
+  // While a drag-pan is in progress, discard hover events so the tooltip/crosshair
+  // don't recompute and redraw on top of the pan — that layered churn was a big part
+  // of the jitter. (Returning false from beforeEvent cancels the event.)
+  beforeEvent(chart, args){
+    if(_panDrag && _panDrag.c===chart && args.event && args.event.type!=="mouseout") return false;
+  },
   afterDraw(chart){
     if(chart.config.type==="doughnut"||chart.config.type==="pie") return;
+    if(_panDrag && _panDrag.c===chart) return;   // no crosshair mid-drag
     const t=chart.tooltip;
     if(!t||!t._active||!t._active.length) return;
     const x=t._active[0].element.x, {top,bottom}=chart.chartArea, c=chart.ctx;
@@ -585,13 +592,15 @@ const ZOOM_OK = !!(window.Chart && Chart.defaults.plugins && Chart.defaults.plug
     && Chart.defaults.plugins.zoom.zoom);
 let NAVMODE = "zoom";
 let ovlChartInst = null;   // the chart rebuilt inside the detail overlay (or null)
+let _panDrag = null;       // active click-drag pan state (set while dragging)
 try{ const m=localStorage.getItem("ts-navmode"); if(m==="pan"||m==="zoom") NAVMODE=m; }catch(e){}
 if (ZOOM_OK){
   const z = Chart.defaults.plugins.zoom;
   z.zoom.drag.backgroundColor = "rgba(91,185,214,.18)";  // rubber-band selection box
   z.zoom.drag.borderColor = "#5BB9D6";
   z.zoom.drag.borderWidth = 1;
-  z.zoom.mode = "x";   // (wheel zoom itself is handled by a custom listener, not the plugin)
+  z.zoom.wheel.speed = 0.05;   // native wheel zoom: pointer-anchored & rAF-throttled by the plugin
+  z.zoom.mode = "x";
   z.pan.mode = "x";
   // Keep zoom & pan inside the data — panning can't wander into empty space and you
   // can't zoom out past the original extent (so pan stays at the current zoom level).
@@ -609,10 +618,10 @@ function setChartNav(c){
   // corrupts the plugin's state and sends chart.update() into infinite recursion.
   const z = c.options.plugins && c.options.plugins.zoom;
   if(z && z.zoom && z.pan){
-    const pan=NAVMODE==="pan";
-    z.zoom.wheel.enabled=false;  // wheel is custom (below) so we control the zoom rate
-    z.zoom.drag.enabled =!pan;   // zoom mode: drag draws a window, then zooms into it (plugin)
-    z.pan.enabled       =false;  // we drive pan via chart.pan() (plugin mouse-pan needs Hammer.js)
+    const zoom=NAVMODE==="zoom";
+    z.zoom.wheel.enabled=zoom;   // native pointer-anchored wheel zoom (rAF-throttled, smooth)
+    z.zoom.drag.enabled =zoom;   // zoom mode: drag draws a window, then zooms into it (plugin)
+    z.pan.enabled       =false;  // pan is our own rAF-coalesced drag (plugin mouse-pan needs Hammer.js)
   }
   c.canvas.style.cursor = NAVMODE==="pan" ? "grab" : "crosshair";
 }
@@ -629,84 +638,44 @@ function applyNavMode(){
   try{ localStorage.setItem("ts-navmode",NAVMODE); }catch(e){}
 }
 function setNavMode(m){ NAVMODE=m; applyNavMode(); }
-// Wheel is fully custom (plugin wheel disabled in setChartNav) so we control the rate:
-//   zoom mode → gentle, cursor-centered zoom, capped per event so trackpad momentum
-//               can't zoom wildly fast; pan mode → horizontal pan.
-const WHEEL_ZOOM_STEP = 0.0016;   // per deltaY unit, before clamping
-const WHEEL_ZOOM_CAP  = 0.05;     // max fraction zoomed per wheel event
 function chartFromEvent(e){
   const cv=e.target; if(!cv || cv.tagName!=="CANVAS") return null;
   const c=Chart.getChart(cv); if(!c) return null;
   if(c.config.type==="doughnut"||c.config.type==="pie") return null;
   return c;
 }
-// Which axes a chart navigates: the cost-vs-tokens scatter is the one true 2D plot,
-// so it zooms/pans in BOTH x and y; every other chart is a time series → x only.
-const navAxes = c => c.config.type==="scatter" ? ["x","y"] : ["x"];
-// Custom focal-point zoom by setting each scale's bounds directly (via the plugin's
-// zoomScale, so reset still works). Done per axis so it's SMOOTH on the category-axis
-// bar charts too — chart.zoom() snaps those to whole categories, which is why the
-// histogram zoomed ~6x faster than the line charts.
-function wheelZoom(c, factor, px, py){
-  navAxes(c).forEach(a=>{
-    const s=c.scales[a]; if(!s) return;
-    const fv=s.getValueForPixel(a==="x"?px:py);
-    if(fv==null || !isFinite(fv)) return;
-    if(s.type==="category"){
-      // Discrete axis (the day-bar charts): fractional bounds get rounded away, so
-      // chart.zoom() snapped by whole categories — that's the "fast histogram" zoom.
-      // Step exactly ONE category per wheel tick (in: drop the far end; out: grow both).
-      const n=(c.data.labels||[]).length-1; if(n<=0) return;
-      const idx=Math.max(s.min,Math.min(s.max,Math.round(fv)));
-      let nmin=s.min, nmax=s.max;
-      if(factor>1){                                   // zoom in
-        if(nmax-nmin<=1) return;                      // already a single bar
-        if(idx-s.min >= s.max-idx) nmin=s.min+1; else nmax=s.max-1;
-      } else {                                        // zoom out
-        nmin=Math.max(0,s.min-1); nmax=Math.min(n,s.max+1);
-      }
-      c.zoomScale(a, {min:nmin, max:nmax}, "none");
-    } else {
-      c.zoomScale(a, {min: fv-(fv-s.min)/factor, max: fv+(s.max-fv)/factor}, "none");
-    }
-  });
-}
-document.addEventListener("wheel", e=>{
-  if(!ZOOM_OK) return;
-  const c=chartFromEvent(e); if(!c) return;
-  e.preventDefault();
-  if(NAVMODE==="pan"){
-    if(!c.pan) return;
-    const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    rubberPan(c, -d, 0);
-    return;
-  }
-  if(!c.zoomScale) return;
-  const mag = Math.max(-WHEEL_ZOOM_CAP, Math.min(WHEEL_ZOOM_CAP, e.deltaY*WHEEL_ZOOM_STEP));
-  const rect = c.canvas.getBoundingClientRect();
-  wheelZoom(c, 1-mag, e.clientX-rect.left, e.clientY-rect.top);   // deltaY<0 → factor>1 → zoom in
-}, {passive:false});
 
-// Click-and-drag pan. The plugin's mouse pan needs Hammer.js (not bundled), so we
-// drive it via chart.pan() (keeps the plugin's zoom state, so reset works). When the
-// chart is zoomed, hitting a data edge just clamps (pan stops) — smooth, no reset.
-// ONLY at full extent (nothing to pan) does the drag become a damped CSS translate
-// that springs back on release — the subtle rubber-band. It never touches the scales.
-let _panDrag=null;
-function rubberPan(c, dx, dy){
+// ZOOM is the plugin's native wheel + drag (pointer-anchored, rAF-throttled, smooth) —
+// enabled per chart in setChartNav. We only own PAN, because the plugin's mouse pan
+// needs Hammer.js (not bundled). Both wheel-pan and click-drag pan are coalesced into
+// ONE chart.pan() per animation frame — applying pan on every raw event was the jitter.
+let _panAccum=null, _panRAF=0;
+function queuePan(c, dx, dy){
+  if(!_panAccum || _panAccum.c!==c) _panAccum={c, dx:0, dy:0};
+  _panAccum.dx+=dx; _panAccum.dy+=dy;
+  if(!_panRAF) _panRAF=requestAnimationFrame(flushPan);
+}
+function flushPan(){
+  _panRAF=0; const a=_panAccum; _panAccum=null; if(!a) return;
+  const c=a.c;
   if(c.isZoomedOrPanned && c.isZoomedOrPanned()){
-    // zoomed in → real pan; clamps smoothly at the edges
-    c.pan(c.config.type==="scatter" ? {x:dx,y:dy} : {x:dx}, undefined, "default");
-    if(_panDrag && _panDrag.c===c && _panDrag.over){ _panDrag.over=0; c.canvas.style.transform="translateX(0px)"; }
-    return;
-  }
-  // full extent → rubber-band (x), no scale change
-  if(_panDrag && _panDrag.c===c){
-    _panDrag.over += dx;
+    // zoomed in → real pan; clamps smoothly at the data edges (pan just stops, no reset)
+    c.pan(c.config.type==="scatter" ? {x:a.dx,y:a.dy} : {x:a.dx}, undefined, "default");
+    if(_panDrag && _panDrag.c===c && _panDrag.over){ _panDrag.over=0; c.canvas.style.transform="none"; }
+  } else if(_panDrag && _panDrag.c===c){
+    // full extent → nothing to pan → damped CSS rubber-band (springs back on release)
+    _panDrag.over += a.dx;
     const o=_panDrag.over, rub=Math.sign(o)*Math.min(28, Math.abs(o)*0.25);
     c.canvas.style.transform = "translateX("+rub+"px)";
   }
 }
+document.addEventListener("wheel", e=>{
+  if(NAVMODE!=="pan" || !ZOOM_OK) return;   // zoom mode → native plugin wheel handles it
+  const c=chartFromEvent(e); if(!c || !c.pan) return;
+  e.preventDefault();
+  const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  queuePan(c, -d, 0);
+}, {passive:false});
 document.addEventListener("mousedown", e=>{
   if(NAVMODE!=="pan" || !ZOOM_OK) return;
   const c=chartFromEvent(e); if(!c || !c.pan) return;
@@ -717,7 +686,7 @@ document.addEventListener("mousemove", e=>{
   if(!_panDrag) return;
   const dx=e.clientX-_panDrag.x, dy=e.clientY-_panDrag.y;
   _panDrag.x=e.clientX; _panDrag.y=e.clientY;
-  rubberPan(_panDrag.c, dx, dy);
+  queuePan(_panDrag.c, dx, dy);
 });
 document.addEventListener("mouseup", ()=>{
   if(!_panDrag) return;

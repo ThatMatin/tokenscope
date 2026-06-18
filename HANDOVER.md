@@ -88,25 +88,25 @@ Clean, all committed (~25 commits, branch `main`, no remote). Recent arc:
    doughnut (proj/model) and the scatter must set `interaction:{mode:"nearest",
    intersect:true}` AND the same on their `tooltip`, or hovering highlights every
    slice/point. The crosshair plugin already skips doughnut/pie by type.
-8. **Wheel zoom AND all panning are custom, not the zoom plugin.** Both plugin flags
-   (`z.zoom.wheel.enabled`, `z.pan.enabled`) are kept `false`; only plugin drag-zoom
-   (the rubber-band-to-window in zoom mode) is still the plugin.
-   - **Wheel zoom** (`wheelZoom`): a custom `wheel` listener sets each scale's bounds
-     directly via `chart.zoomScale` around the cursor, step CAPPED at 5%/event
-     (`WHEEL_ZOOM_CAP`). The plugin's `wheel.speed` was a dead end — trackpad momentum
-     fires many events, so per-event speed barely changed the felt rate; the cap slows
-     it. **Category axes (the day-bar charts) are discrete** — fractional bounds round
-     away, so `chart.zoom()` snapped by whole categories (the "fast histogram"); they
-     now step exactly ONE category per tick. The **scatter is the only 2D plot** — it
-     zooms/pans BOTH axes (`navAxes`); every other chart is x-only.
-   - **Pan** (wheel & click-drag): custom listeners call `chart.pan(...)` (plugin
-     mouse-pan needs Hammer.js, not bundled). Imperative `pan()` keeps the plugin's
-     zoom state so reset works, and pan never changes a scale's span (zoom locked).
-   - **Rubber-band ONLY at full extent.** When the chart is zoomed, hitting a data edge
-     just clamps (pan stops) — no transform, no reset. Only when `!isZoomedOrPanned()`
-     (nothing to pan) does the drag become a damped `translateX` that springs back on
-     mouseup (pure CSS — never touches scales). Earlier the rubber-band fired at every
-     edge and read as a zoom reset.
+8. **Zoom = native plugin; pan = custom but rAF-coalesced.** A hand-rolled per-event
+   zoom/pan made the charts jittery — every wheel/mousemove did a full synchronous
+   chart update, several per frame, plus focal drift and hover-redraw churn. Fixed by:
+   - **Wheel + drag-rubber-band zoom: native plugin** (`z.zoom.wheel.enabled` /
+     `z.zoom.drag.enabled` flipped per chart by `setChartNav`). The plugin is
+     pointer-anchored and rAF-throttled — smooth. Rate via `z.zoom.wheel.speed=0.05`.
+     `z.zoom.mode` is `x` for time series, `xy` for the scatter (its config). Category
+     (day-bar) charts zoom natively too — accepted as the simplest smooth path.
+   - **Pan is ours** (plugin mouse-pan needs Hammer.js, not bundled): wheel-pan and
+     click-drag pan both `queuePan()` deltas and apply ONE `chart.pan()` per
+     `requestAnimationFrame` (`flushPan`). Imperative `pan()` keeps the plugin's zoom
+     state so reset works; pan never changes a scale's span (zoom locked). `z.pan.enabled`
+     stays `false`. Scatter pans xy; others x.
+   - **Hover suppressed mid-drag**: the `crosshair` plugin's `beforeEvent` returns
+     `false` while `_panDrag` is active (cancels tooltip/hover recompute), and its
+     `afterDraw` skips — so nothing redraws on top of the pan.
+   - **Rubber-band ONLY at full extent**: when zoomed, hitting an edge just clamps; only
+     at full extent (nothing to pan) does the drag become a damped `translateX` that
+     springs back on mouseup (pure CSS — never touches scales).
 9. **Switching zoom/pan mode at runtime must flip flags on each chart's OWN resolved
    `c.options.plugins.zoom`, not `Chart.defaults`.** Chart.js v4 resolves defaults
    into `c.options` at creation, so mutating defaults afterwards never reaches a live
