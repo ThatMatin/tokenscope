@@ -9,7 +9,15 @@
 #     "events": { "idle": {"enabled":true,"sound":"Glass"},
 #                 "needs_input": {"enabled":true,"sound":"Ping"} } }
 # Absent config or jq → silent (fail-safe). sound "none" → silent.
+#
+# Sub-agents/sub-sessions → silent: the hook stdin JSON carries an `agent_id`
+# only when invoked from a spawned sub-agent (Task/Agent tool or nested
+# session). Top-level interactive sessions have no `agent_id`.
 event="${1:-idle}"
+stdin_json=$(cat 2>/dev/null)
+if [ -n "$stdin_json" ] && command -v jq >/dev/null 2>&1; then
+  [ -n "$(printf '%s' "$stdin_json" | jq -r '.agent_id // empty' 2>/dev/null)" ] && exit 0
+fi
 cfg="$HOME/.claude/tokenscope-alarm.json"
 { [ -f "$cfg" ] && command -v jq >/dev/null 2>&1; } || exit 0
 [ "$(jq -r '.master // true' "$cfg" 2>/dev/null)" = "true" ] || exit 0
