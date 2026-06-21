@@ -257,6 +257,10 @@ HTML = r"""<!doctype html>
   .heat-legend{display:flex;align-items:center;gap:6px;justify-content:flex-end;
     margin-top:10px;font-size:11px;color:var(--faint)}
   .heat-legend i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  .scat-ovl{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:10px}
+  .scat-ovl label{display:inline-flex;align-items:center;gap:5px;margin-right:0;cursor:pointer;
+    text-transform:none;letter-spacing:0;font-size:11px}
+  .scat-ovl input{accent-color:var(--accent);cursor:pointer;margin:0}
   label{color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-right:5px}
   .wrap{padding:26px 30px;max-width:1320px;margin:0 auto}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin-bottom:24px}
@@ -465,6 +469,11 @@ HTML = r"""<!doctype html>
     <div class="card full" data-entry="day"><h2 class="exp">Spend per day</h2><canvas id="cDay"></canvas></div>
     <div class="card" data-entry="cum"><h2 class="exp">Cumulative spend</h2><canvas id="cCum"></canvas></div>
     <div class="card" data-entry="scatter"><h2 class="exp">Cost vs. tokens per turn</h2><canvas id="cScatter"></canvas>
+      <div class="scat-ovl">
+        <label title="Rays from the origin at the p25/p50/p75/p90 cost-per-token slope — dots above a ray cost more per token than that percentile."><input type="checkbox" id="ovlRays"> $/tok rays</label>
+        <label title="Vertical lines at token p50/p90/p99 and horizontal lines at cost p50/p90/p99 — the marginal distribution of each axis."><input type="checkbox" id="ovlAxis"> axis p50/90/99</label>
+        <label title="Bin dots by token range and trace the p50 and p90 cost within each bin — shows how cost spread grows with token count."><input type="checkbox" id="ovlBins"> binned p50/p90</label>
+      </div>
       <div class="heat-legend">older <i style="width:64px;background:linear-gradient(90deg,#6E8BFF,#3ECF8E)"></i> recent</div></div>
     <div class="card" data-entry="proj"><h2 class="exp">Spend by project</h2><canvas id="cProj"></canvas></div>
     <div class="card" data-entry="model"><h2 class="exp">Spend by model</h2><canvas id="cModel"></canvas></div>
@@ -532,6 +541,14 @@ const $ = s => document.querySelector(s);
 const money = x => "$" + x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const toks = x => { const a=Math.abs(x), s=x<0?"-":"";
   return a>=1e6 ? s+(a/1e6).toFixed(2)+"M" : a>=1e3 ? s+(a/1e3).toFixed(1)+"K" : s+a; };
+// Linear-interpolated percentile of an array. p in [0,100]. Returns null if empty.
+// Sorts a copy, so callers can pass an unsorted slice.
+const pctl = (arr, p) => {
+  const a = arr.filter(v=>v!=null && !isNaN(v)).slice().sort((x,y)=>x-y);
+  if(!a.length) return null;
+  const i = (p/100)*(a.length-1), lo=Math.floor(i), hi=Math.ceil(i);
+  return lo===hi ? a[lo] : a[lo]+(a[hi]-a[lo])*(i-lo);
+};
 const COL = {exact:"#3ECF8E", partial:"#D8A848", border:"#5BB9D6", red:"#E0607E"};
 // muted, lower-chroma data palette — color stays calm so signal stands out
 const PALETTE = ["#3ECF8E","#6E8BFF","#5BB9D6","#D8A848","#E0607E","#9b87f5","#7C8694","#4cd4b0"];
@@ -641,8 +658,12 @@ function applyNavMode(){
     const z = Chart.defaults.plugins.zoom, pan = NAVMODE==="pan";
     z.zoom.wheel.enabled=!pan; z.zoom.drag.enabled=!pan; z.pan.enabled=pan;
   }
-  for(const k in charts){ const c=charts[k]; setChartNav(c); c.update("none"); }
-  if(ovlChartInst){ setChartNav(ovlChartInst); ovlChartInst.update("none"); }
+  // setChartNav only flips enabled booleans the zoom plugin re-reads at event time
+  // (see its comment), so NO chart.update() is needed to apply the mode — and calling
+  // update() here wiped the current zoom/pan, snapping the chart back to full extent
+  // every time you toggled Zoom⇄Pan. Just mutate the flags + cursor, leave the view be.
+  for(const k in charts){ setChartNav(charts[k]); }
+  if(ovlChartInst){ setChartNav(ovlChartInst); }
   // sync every Zoom/Pan toggle (sidebar + per-chart toolbars + overlay toolbar)
   document.querySelectorAll(".nm-zoom").forEach(b=>b.classList.toggle("on",NAVMODE==="zoom"));
   document.querySelectorAll(".nm-pan").forEach(b=>b.classList.toggle("on",NAVMODE==="pan"));
@@ -928,6 +949,65 @@ function peakWindow(rows, hours=5){
   return {peak:best, end:bestEnd};
 }
 
+// Which percentile overlays are drawn on the cost-vs-tokens scatter. Persisted so a
+// live `serve` refresh (and the next page load) keeps the user's choice.
+const SCAT_OVL = {rays:false, axis:false, bins:false};
+try{ Object.assign(SCAT_OVL, JSON.parse(localStorage.getItem("ts-scat-ovl")||"{}")); }catch(e){}
+
+// Build the percentile overlay datasets for the scatter from its point array
+// (each pt = {x:tokens, y:cost}). Returns line-type datasets to append after the dots.
+// Three independent overlays, toggled via SCAT_OVL:
+//   rays — cost/token slope percentiles, as rays from the origin
+//   axis — per-axis percentile lines (vertical=tokens, horizontal=cost)
+//   bins — p50/p90 cost traced across token bins
+function scatterOverlays(pts){
+  const out=[];
+  if(!pts.length) return out;
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+  const xmax=Math.max(...xs), ymax=Math.max(...ys);
+  // shared cosmetics: thin dashed reference lines that never grab the tooltip/hover
+  const base={type:"line", showLine:true, pointRadius:0, pointHoverRadius:0, fill:false,
+    borderWidth:1.25, borderDash:[], order:5};   // borderDash:[] reset — draw() reuses dataset objects by index
+
+  if(SCAT_OVL.rays && xmax>0){
+    const ratios=pts.filter(p=>p.x>0).map(p=>p.y/p.x);
+    [[25,COL.border],[50,COL.exact],[75,COL.partial],[90,COL.red]].forEach(([p,col])=>{
+      const s=pctl(ratios,p); if(s==null) return;
+      out.push(Object.assign({}, base, {label:"p"+p+" $/tok", borderColor:col,
+        borderDash:[6,4], data:[{x:0,y:0},{x:xmax,y:s*xmax}]}));
+    });
+  }
+
+  if(SCAT_OVL.axis){
+    [[50,COL.border],[90,COL.partial],[99,COL.red]].forEach(([p,col])=>{
+      const xv=pctl(xs,p), yv=pctl(ys,p);
+      if(xv!=null) out.push(Object.assign({}, base, {label:"tok p"+p, borderColor:col,
+        borderDash:[2,3], data:[{x:xv,y:0},{x:xv,y:ymax}]}));
+      if(yv!=null) out.push(Object.assign({}, base, {label:"cost p"+p, borderColor:col,
+        borderDash:[2,3], data:[{x:0,y:yv},{x:xmax,y:yv}]}));
+    });
+  }
+
+  if(SCAT_OVL.bins && xmax>0){
+    const N=8, edges=[]; for(let i=0;i<=N;i++) edges.push(pctl(xs, i*100/N));
+    const mids=[], p50=[], p90=[];
+    for(let i=0;i<N;i++){
+      const lo=edges[i], hi=edges[i+1];
+      // include the right edge only in the last bin so points aren't double-counted
+      const bin=pts.filter(p=> p.x>=lo && (i===N-1 ? p.x<=hi : p.x<hi)).map(p=>p.y);
+      if(!bin.length) continue;
+      mids.push((lo+hi)/2); p50.push(pctl(bin,50)); p90.push(pctl(bin,90));
+    }
+    if(mids.length){
+      out.push(Object.assign({}, base, {label:"bin p90 cost", borderColor:COL.red, borderWidth:1.75,
+        data:mids.map((x,i)=>({x, y:p90[i]}))}));
+      out.push(Object.assign({}, base, {label:"bin p50 cost", borderColor:COL.exact, borderWidth:1.75,
+        data:mids.map((x,i)=>({x, y:p50[i]}))}));
+    }
+  }
+  return out;
+}
+
 function render(){
   const rows = filtered();
   const totCost = rows.reduce((a,r)=>a+(r.turn_cost||0),0);
@@ -1061,12 +1141,17 @@ function render(){
   const tcolor = t => { const k=Math.min(1,Math.max(0,(t-tmin)/tspan));
     return `rgba(${Math.round(C_OLD[0]+(C_NEW[0]-C_OLD[0])*k)},${Math.round(C_OLD[1]+(C_NEW[1]-C_OLD[1])*k)},${Math.round(C_OLD[2]+(C_NEW[2]-C_OLD[2])*k)},.65)`; };
   const sdata = rows.map(r=>({x:Math.max(0,r.turn_tokens||0), y:r.turn_cost||0, p:r.project, t:r.epoch}));
+  const scatDs = [{data:sdata, backgroundColor:sdata.map(d=>tcolor(d.t)), pointRadius:3, pointHoverRadius:5,
+    order:0}];   // order:0 → dots draw on top of the order:5 overlay lines
+  scatDs.push(...scatterOverlays(sdata));
   draw("scatter", "#cScatter", {type:"scatter",
-    data:{datasets:[{data:sdata, backgroundColor:sdata.map(d=>tcolor(d.t)), pointRadius:3, pointHoverRadius:5}]},
+    data:{datasets:scatDs},
     options:{interaction:{mode:"nearest",intersect:true},
       plugins:{legend:{display:false},
       zoom:{zoom:{mode:"xy"},pan:{mode:"xy"}},   // 2D plot: drag-zoom box & pan both axes
-      tooltip:{mode:"nearest",intersect:true,callbacks:{
+      tooltip:{mode:"nearest",intersect:true,
+      // overlay lines are reference geometry, not data — keep the tooltip on the dots only
+      filter:i=>i.datasetIndex===0,callbacks:{
       title:i=>new Date(i[0].raw.t).toLocaleString(),
       label:c=>money(c.raw.y)+" · "+toks(c.raw.x)+" tok · "+c.raw.p}}},
       scales:{x:{...GRID.x,title:{display:true,text:"main-loop tokens",color:"#5B6470"},ticks:{callback:v=>toks(v)}},
@@ -1093,6 +1178,17 @@ function render(){
 
 [selP,selM,$("#fFrom"),$("#fTo")].forEach(el=>el.addEventListener("change",render));
 $("#exportBtn").addEventListener("click",exportCSV);
+
+// scatter percentile overlays — reflect persisted state, then re-render on toggle
+[["ovlRays","rays"],["ovlAxis","axis"],["ovlBins","bins"]].forEach(([id,key])=>{
+  const el=$("#"+id); if(!el) return;
+  el.checked=!!SCAT_OVL[key];
+  el.addEventListener("change",()=>{
+    SCAT_OVL[key]=el.checked;
+    try{localStorage.setItem("ts-scat-ovl",JSON.stringify(SCAT_OVL));}catch(e){}
+    render();
+  });
+});
 
 // Mode-aware labels: in serve mode the panels really are live; the static file isn't.
 const modeTxt = LIVE ? `(live · every ${Math.round(POLL_MS/1000)}s)` : "(snapshot at generation)";
