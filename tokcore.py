@@ -356,6 +356,7 @@ def discover_sessions(max_age=900):
             if ts:
                 merged["cache_hit"] = ts["cache_hit"]
                 merged["io_ratio"] = ts["io_ratio"]
+            merged["_transcript_path"] = tp
         out.append(merged)
     out.sort(key=lambda d: d.get("_age", 1e9))
     return out

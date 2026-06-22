@@ -14,6 +14,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import dashboard
+import provenance
 from tokcore import TURN_LOG
 
 ALARM_CFG = os.path.expanduser("~/.claude/tokenscope-alarm.json")
@@ -81,6 +82,16 @@ def make_handler(log_path, poll_ms):
             elif path == "/alarm":
                 self._send(json.dumps(read_alarm()).encode("utf-8"),
                            "application/json")
+            elif path == "/graph":
+                html = provenance.build_graph_html(poll_ms)
+                self._send(html.encode("utf-8"), "text/html; charset=utf-8")
+            elif path == "/graph-data":
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                sid = (qs.get("session") or [None])[0]
+                g = provenance.graph_for_session(sid)
+                self._send(json.dumps(g, separators=(",", ":")).encode("utf-8"),
+                           "application/json")
             else:
                 self.send_error(404)
 
@@ -111,11 +122,13 @@ def run(args):
     except OSError as e:
         sys.exit(f"Cannot bind {args.host}:{args.port} — {e} "
                  f"(try a different --port).")
-    url = f"http://{args.host}:{args.port}/"
-    print(f"tokenscope dashboard live at {url}  (refresh every {args.interval}s)")
+    open_path = getattr(args, "open_path", "/")
+    base = f"http://{args.host}:{args.port}"
+    label = "provenance graph" if open_path == "/graph" else "dashboard"
+    print(f"tokenscope {label} live at {base}{open_path}  (refresh every {args.interval}s)")
     print("Ctrl-C to stop.")
     if not args.no_open:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.4, lambda: webbrowser.open(base + open_path)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
