@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tokcore import TURN_LOG  # noqa: E402
 
-SUBCOMMANDS = {"live", "grid", "report", "dashboard", "serve"}
+SUBCOMMANDS = {"live", "grid", "report", "dashboard", "serve", "graph"}
 
 
 def build_parser():
@@ -58,6 +58,13 @@ def build_parser():
     p_srv.add_argument("--host", default="127.0.0.1", help="bind address (default localhost only)")
     p_srv.add_argument("-i", "--interval", type=float, default=5, help="browser poll seconds")
     p_srv.add_argument("--no-open", action="store_true")
+
+    p_graph = sub.add_parser("graph", help="live provenance graph of one session (browser)")
+    p_graph.add_argument("--log", default=TURN_LOG)
+    p_graph.add_argument("--port", type=int, default=8765)
+    p_graph.add_argument("--host", default="127.0.0.1", help="bind address (default localhost only)")
+    p_graph.add_argument("-i", "--interval", type=float, default=3, help="browser poll seconds")
+    p_graph.add_argument("--no-open", action="store_true")
     return ap
 
 
@@ -79,6 +86,10 @@ def main():
         dashboard.run(args)
     elif args.cmd == "serve":
         import serve
+        serve.run(args)
+    elif args.cmd == "graph":
+        import serve
+        args.open_path = "/graph"
         serve.run(args)
     else:
         import live
