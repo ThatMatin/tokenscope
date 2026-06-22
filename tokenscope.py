@@ -16,7 +16,12 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Modules are grouped by concern (core/ shared core, views/ the renderers) but still
+# import each other by bare name (`from tokcore import …`, `import dashboard`). Put both
+# dirs on sys.path so those flat imports resolve without turning this into a package.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _sub in ("core", "views"):
+    sys.path.insert(0, os.path.join(_HERE, _sub))
 
 from tokcore import TURN_LOG  # noqa: E402
 
