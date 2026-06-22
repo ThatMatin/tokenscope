@@ -10,13 +10,25 @@
 #                 "needs_input": {"enabled":true,"sound":"Ping"} } }
 # Absent config or jq → silent (fail-safe). sound "none" → silent.
 #
-# Sub-agents/sub-sessions → silent: the hook stdin JSON carries an `agent_id`
-# only when invoked from a spawned sub-agent (Task/Agent tool or nested
-# session). Top-level interactive sessions have no `agent_id`.
+# Ring ONLY for live, interactive sessions — via a session allowlist.
+#
+# Claude Code fires this Stop/Notification hook for every TOP-LEVEL session,
+# including headless, cron, and cloud-routine runs (typically out of /tmp). Those
+# would each ding even though no human is watching them. The hook payload carries
+# NO field that distinguishes them (verified: Stop/Notification payloads never
+# include `agent_id` — the old guard keyed on that and was dead code).
+#
+# The reliable signal: statusline.sh writes ~/.claude/tokscope-sessions/{id}.json
+# on every render, and the statusline renders ONLY in interactive sessions. So a
+# session_id with a snapshot file == an interactive session the user is watching;
+# headless/cron sessions never create one. (Task sub-agents fire SubagentStop,
+# which this script isn't wired to, so they're already silent regardless.)
 event="${1:-idle}"
 stdin_json=$(cat 2>/dev/null)
 if [ -n "$stdin_json" ] && command -v jq >/dev/null 2>&1; then
-  [ -n "$(printf '%s' "$stdin_json" | jq -r '.agent_id // empty' 2>/dev/null)" ] && exit 0
+  sid=$(printf '%s' "$stdin_json" | jq -r '.session_id // empty' 2>/dev/null)
+  # No session id, or no statusline snapshot for it → not interactive → silent.
+  { [ -z "$sid" ] || [ ! -f "$HOME/.claude/tokscope-sessions/${sid}.json" ]; } && exit 0
 fi
 cfg="$HOME/.claude/tokenscope-alarm.json"
 { [ -f "$cfg" ] && command -v jq >/dev/null 2>&1; } || exit 0
