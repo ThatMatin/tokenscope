@@ -25,11 +25,12 @@ Rate-limit data appears only on **Pro / Max / Team** plans.
 Requires `jq` and `python3` (3.8+, standard library only).
 
 ```bash
-# 1. install the status line
-cp statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh
+# 1. install the status line (symlink so repo updates flow through)
+ln -sf "$PWD/scripts/statusline.sh" ~/.claude/statusline.sh
 
 # 2. wire it in ~/.claude/settings.json (see settings.example.json):
 #    "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" }
+#    notifications (optional): ln -sf "$PWD/scripts/notify.sh" ~/.claude/tokenscope-notify.sh
 
 # 3. watch your current session in a second pane
 python3 tokenscope.py live
@@ -44,7 +45,11 @@ alias tokenscope='python3 /path/to/tokenscope.py'
 
 ## I want to… → run this
 
-One entrypoint (`tokenscope.py`) over a shared core (`tokcore.py`):
+One entrypoint (`tokenscope.py`) over a shared core (`core/tokcore.py`). The repo is
+grouped by concern: `core/` (shared core), `views/` (the renderers — `live`, `grid`,
+`report`, `dashboard`, `serve`, `provenance`), `scripts/` (the `.sh` hooks), `docs/`.
+`tokenscope.py` puts `core/` and `views/` on the import path, so the subcommands run
+unchanged.
 
 | I want to… | command | notes |
 |------------|---------|-------|
