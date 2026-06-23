@@ -303,16 +303,32 @@ document.getElementById('fit').onclick=fit;
 //  web      — force-directed (cose): folds the near-linear chain into a compact 2D web
 //  timeline — chronological: prompts form a left spine, findings branch right, ordered
 //             by creation so you read the task top-to-bottom and scroll through time.
+function coseOpts(refit){return {name:'cose',animate:false,randomize:refit,idealEdgeLength:110,
+  nodeRepulsion:12000,nodeOverlap:30,gravity:0.25,numIter:1200,componentSpacing:120,fit:false};}
+function isCollapsed(){
+  const ns=cy.nodes(); if(ns.length<3) return false;
+  // all nodes piled on one point → collapsed. (Bounding box is no good here: a
+  // stack of nodes still spans one node+label, ~200px, so size checks miss it.)
+  const seen=new Set();
+  ns.forEach(n=>seen.add(Math.round(n.position('x'))+','+Math.round(n.position('y'))));
+  return seen.size<=1;
+}
+function runCose(refit){
+  cy.layout(coseOpts(refit)).run();
+  // If the renderer wasn't sized yet (the very first paint on a freshly loaded
+  // session), cose piles every node onto (0,0). Re-run on the next frame, when the
+  // container has real dimensions — otherwise the graph stays one stacked dot forever.
+  if(isCollapsed()){
+    requestAnimationFrame(()=>{ cy.layout(coseOpts(true)).run(); cy.fit(undefined,60); });
+  } else if(refit){ cy.fit(undefined,60); }
+}
 function relayout(refit){
   if(mode==='timeline'){
     const ns = cy.nodes().sort((a,b)=>(+a.id())-(+b.id()));
     ns.forEach((n,i)=>n.position({x:(n.data('type')==='prompt')?0:280, y:i*66}));
     if(refit) cy.viewport({zoom:0.9, pan:{x:210, y:46}});  // first node near top-left
   } else {
-    cy.layout({name:'cose',animate:false,randomize:refit,idealEdgeLength:110,
-               nodeRepulsion:12000,nodeOverlap:30,gravity:0.25,numIter:1200,
-               componentSpacing:120,fit:false}).run();
-    if(refit) cy.fit(undefined,60);
+    runCose(refit);
   }
 }
 function setMode(m){
@@ -380,6 +396,11 @@ function apply(g){
     // session switch) so new nodes never yank your pan/zoom.
     relayout(needFit);
     needFit=false;
+  } else if(mode==='web' && isCollapsed()){
+    // Self-heal: if the initial layout collapsed (renderer wasn't sized in time and
+    // even the rAF retry was too early), the poll loop catches it and re-lays out —
+    // so a stacked-into-one-dot graph fixes itself within one refresh instead of forever.
+    relayout(true);
   }
 }
 tick(); setInterval(tick, POLL);
