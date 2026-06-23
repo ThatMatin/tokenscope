@@ -59,14 +59,14 @@ def build_parser():
 
     p_srv = sub.add_parser("serve", help="live auto-refreshing HTML dashboard (local server)")
     p_srv.add_argument("--log", default=TURN_LOG)
-    p_srv.add_argument("--port", type=int, default=8765)
+    p_srv.add_argument("--port", type=int, default=8799)
     p_srv.add_argument("--host", default="127.0.0.1", help="bind address (default localhost only)")
     p_srv.add_argument("-i", "--interval", type=float, default=5, help="browser poll seconds")
     p_srv.add_argument("--no-open", action="store_true")
 
     p_graph = sub.add_parser("graph", help="live provenance graph of one session (browser)")
     p_graph.add_argument("--log", default=TURN_LOG)
-    p_graph.add_argument("--port", type=int, default=8765)
+    p_graph.add_argument("--port", type=int, default=8799)
     p_graph.add_argument("--host", default="127.0.0.1", help="bind address (default localhost only)")
     p_graph.add_argument("-i", "--interval", type=float, default=3, help="browser poll seconds")
     p_graph.add_argument("--no-open", action="store_true")
