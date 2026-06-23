@@ -8,6 +8,7 @@ carries your usage/cost data, so it is never exposed on the network.
 """
 import json
 import os
+import socket
 import sys
 import threading
 import webbrowser
@@ -115,7 +116,38 @@ def make_handler(log_path, poll_ms):
     return Handler
 
 
+def _listening(host, port, timeout=0.2):
+    """True if something already accepts connections on host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _port_taken(host, port):
+    """A plain bind can succeed on one address family while another process holds
+    the same port on a different one — e.g. we grab 127.0.0.1 (IPv4) while a wildcard
+    IPv6 server already owns the port. The bind doesn't error, but the browser may
+    then land on the *other* server (this is exactly the memgw-on-8765 collision that
+    surfaced as a spurious 401). So probe the loopback peers, not just our own host."""
+    return any(_listening(h, port) for h in {host, "127.0.0.1", "::1"})
+
+
+def _suggest_free_port(start, host, tries=20):
+    for p in range(start, start + tries):
+        if not _port_taken(host, p):
+            return p
+    return None
+
+
 def run(args):
+    if _port_taken(args.host, args.port):
+        free = _suggest_free_port(args.port + 1, args.host)
+        hint = f" Try: --port {free}" if free else ""
+        sys.exit(f"Port {args.port} is already in use by another process. "
+                 f"tokenscope would silently lose the race and your browser could "
+                 f"hit the wrong server, so refusing to start.{hint}")
     handler = make_handler(args.log, int(args.interval * 1000))
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), handler)
